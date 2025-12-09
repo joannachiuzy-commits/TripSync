@@ -27,7 +27,7 @@
               class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
               active-class="text-primary-600"
             >
-              站点库
+              第三方攻略库
             </router-link>
             <router-link
               to="/editor"

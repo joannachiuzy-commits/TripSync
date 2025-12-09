@@ -66,12 +66,39 @@ const fetchGuides = async () => {
   error.value = ''
   
   try {
-    // 调用后端API获取攻略列表
-    const response = await axios.get('/api/guides')
-    guides.value = response.data
+    // 【统一修复1】调用后端API获取攻略列表 - 使用完整URL和端口3008
+    const response = await axios.get('http://localhost:3008/api/guides', {
+      timeout: 10000 // 10秒超时
+    })
+    
+    // 【统一修复2】适配后端统一返回格式：{ code: 200, data: [...], msg: "成功" }
+    if (response.data && response.data.code === 200) {
+      guides.value = response.data.data || []
+      error.value = '' // 成功时清空错误信息
+    } else {
+      // 兼容旧格式（直接返回数组）
+      guides.value = Array.isArray(response.data) ? response.data : []
+      error.value = ''
+    }
+    
+    // 如果没有数据，显示友好提示（不是错误）
+    if (guides.value.length === 0) {
+      error.value = '' // 空列表不是错误
+    }
   } catch (err) {
-    error.value = '获取攻略列表失败，请检查后端服务是否正常运行'
+    // 【修复2】改进错误处理，显示更详细的错误信息
     console.error('获取攻略失败:', err)
+    if (err.response) {
+      // 服务器返回了错误响应
+      error.value = `获取攻略列表失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      // 请求已发出但没有收到响应
+      error.value = '获取攻略列表失败：无法连接到后端服务（请确保后端服务在3008端口运行）'
+    } else {
+      // 其他错误
+      error.value = `获取攻略列表失败: ${err.message || '未知错误'}`
+    }
+    guides.value = [] // 确保失败时清空列表
   } finally {
     loading.value = false
   }

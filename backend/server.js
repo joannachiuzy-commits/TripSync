@@ -32,7 +32,7 @@ dotenv.config()
 
 // 创建Express应用
 const app = express()
-const PORT = process.env.PORT || 3001
+const PORT = 3008
 
 // 【修复3】中间件配置 - 确保顺序正确
 app.use(cors()) // 允许跨域请求
@@ -58,26 +58,48 @@ app.get('/api/test', (req, res) => {
 // 获取所有攻略 (GET /api/guides)
 app.get('/api/guides', async (req, res) => {
   try {
-    // 【修复4】检查supabase是否可用
-    if (!supabase) {
-      return res.json([]) // 如果未配置，返回空数组
+    let guidesData = []
+    
+    // 【统一修复1】检查supabase是否可用，并处理连接失败的情况
+    if (supabase && isSupabaseConfigured()) {
+      try {
+        // 从Supabase查询所有攻略
+        const { data, error } = await supabase
+          .from('guides')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        if (error) {
+          console.warn('⚠️ Supabase查询攻略失败，返回空数组:', error.message)
+          guidesData = []
+        } else {
+          guidesData = data || []
+        }
+      } catch (dbError) {
+        // Supabase连接失败或其他错误，返回空数组
+        console.warn('⚠️ Supabase连接失败，返回空数组:', dbError.message)
+        guidesData = []
+      }
+    } else {
+      // Supabase未配置，返回空数组
+      console.log('ℹ️ Supabase未配置，返回空数组')
+      guidesData = []
     }
     
-    // 从Supabase查询所有攻略
-    const { data, error } = await supabase
-      .from('guides')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.error('查询攻略失败:', error)
-      return res.status(500).json({ error: '获取攻略列表失败', details: error.message })
-    }
-
-    res.json(data || [])
+    // 【统一修复2】统一返回格式：{ code: 200, data: [...], msg: "成功" }
+    return res.json({
+      code: 200,
+      data: guidesData,
+      msg: '成功'
+    })
   } catch (err) {
     console.error('服务器错误:', err)
-    res.status(500).json({ error: '服务器内部错误', details: err.message })
+    return res.status(500).json({ 
+      code: 500,
+      data: [],
+      msg: '服务器内部错误',
+      error: err.message 
+    })
   }
 })
 
@@ -661,6 +683,7 @@ app.post('/api/xhs/parse', async (req, res) => {
 const SITES_JSON_PATH = path.join(__dirname, 'data', 'xhs_sites.json')
 const TRIPS_JSON_PATH = path.join(__dirname, 'data', 'trips.json')
 const TRIP_SITES_JSON_PATH = path.join(__dirname, 'data', 'trip_sites.json')
+const TRIP_ITEMS_JSON_PATH = path.join(__dirname, 'data', 'trip_items.json') // 【新增2】行程内容JSON文件路径
 
 // 确保data目录存在
 const ensureDataDir = () => {
@@ -685,10 +708,24 @@ const isSupabaseConfigured = () => {
 const readSitesFromFile = () => {
   try {
     ensureDataDir()
+    // 【修复3】确保文件存在，如果不存在则创建空数组
+    if (!fs.existsSync(SITES_JSON_PATH)) {
+      fs.writeFileSync(SITES_JSON_PATH, JSON.stringify([], null, 2), 'utf-8')
+      return []
+    }
     const data = fs.readFileSync(SITES_JSON_PATH, 'utf-8')
+    if (!data || data.trim() === '') {
+      return []
+    }
     return JSON.parse(data)
   } catch (error) {
     console.error('读取JSON文件失败:', error)
+    // 如果文件损坏，创建新文件
+    try {
+      fs.writeFileSync(SITES_JSON_PATH, JSON.stringify([], null, 2), 'utf-8')
+    } catch (writeError) {
+      console.error('创建JSON文件失败:', writeError)
+    }
     return []
   }
 }
@@ -859,6 +896,93 @@ const deleteTripSitesFromFile = (tripId) => {
   }
 }
 
+// ==================== 行程内容（手动录入）相关函数（JSON文件存储） ====================
+
+// 从JSON文件读取行程内容列表
+const readTripItemsFromFile = () => {
+  try {
+    ensureDataDir()
+    if (!fs.existsSync(TRIP_ITEMS_JSON_PATH)) {
+      fs.writeFileSync(TRIP_ITEMS_JSON_PATH, JSON.stringify([], null, 2), 'utf-8')
+    }
+    const data = fs.readFileSync(TRIP_ITEMS_JSON_PATH, 'utf-8')
+    return JSON.parse(data)
+  } catch (error) {
+    console.error('读取行程内容JSON文件失败:', error)
+    return []
+  }
+}
+
+// 保存行程内容到JSON文件
+const saveTripItemToFile = (itemData) => {
+  try {
+    ensureDataDir()
+    const items = readTripItemsFromFile()
+    const newItem = {
+      id: `trip_item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      ...itemData,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+    items.push(newItem)
+    fs.writeFileSync(TRIP_ITEMS_JSON_PATH, JSON.stringify(items, null, 2), 'utf-8')
+    return newItem
+  } catch (error) {
+    console.error('保存行程内容到JSON文件失败:', error)
+    throw error
+  }
+}
+
+// 更新行程内容到JSON文件
+const updateTripItemInFile = (itemId, itemData) => {
+  try {
+    ensureDataDir()
+    const items = readTripItemsFromFile()
+    const index = items.findIndex(item => item.id === itemId)
+    if (index === -1) {
+      throw new Error('行程内容不存在')
+    }
+    items[index] = {
+      ...items[index],
+      ...itemData,
+      updated_at: new Date().toISOString()
+    }
+    fs.writeFileSync(TRIP_ITEMS_JSON_PATH, JSON.stringify(items, null, 2), 'utf-8')
+    return items[index]
+  } catch (error) {
+    console.error('更新行程内容失败:', error)
+    throw error
+  }
+}
+
+// 从JSON文件删除行程内容
+const deleteTripItemFromFile = (itemId) => {
+  try {
+    ensureDataDir()
+    const items = readTripItemsFromFile()
+    const filtered = items.filter(item => item.id !== itemId)
+    fs.writeFileSync(TRIP_ITEMS_JSON_PATH, JSON.stringify(filtered, null, 2), 'utf-8')
+    return true
+  } catch (error) {
+    console.error('删除行程内容失败:', error)
+    throw error
+  }
+}
+
+// 删除行程的所有内容
+const deleteTripItemsFromFile = (tripId) => {
+  try {
+    ensureDataDir()
+    const items = readTripItemsFromFile()
+    const filtered = items.filter(item => item.trip_id !== tripId)
+    fs.writeFileSync(TRIP_ITEMS_JSON_PATH, JSON.stringify(filtered, null, 2), 'utf-8')
+    return true
+  } catch (error) {
+    console.error('删除行程所有内容失败:', error)
+    throw error
+  }
+}
+
 // 保存站点到数据库 (POST /api/xhs/sites)
 app.post('/api/xhs/sites', async (req, res) => {
   try {
@@ -990,21 +1114,54 @@ app.get('/api/xhs/sites/:id', async (req, res) => {
   try {
     const { id } = req.params
 
-    const { data, error } = await supabase
-      .from('xhs_sites')
-      .select('*')
-      .eq('id', id)
-      .single()
+    // 【重构修复1】检查Supabase是否配置且可用
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('xhs_sites')
+          .select('*')
+          .eq('id', id)
+          .single()
 
-    if (error) {
-      console.error('查询站点失败:', error)
-      return res.status(404).json({ error: '站点不存在', details: error.message })
+        if (error) throw error
+        
+        // 统一返回格式
+        return res.json({
+          code: 200,
+          data: data,
+          msg: '成功'
+        })
+      } catch (dbError) {
+        console.warn('⚠️ Supabase查询失败，切换到JSON文件:', dbError.message)
+      }
     }
 
-    res.json(data)
+    // 使用JSON文件
+    const sites = readSitesFromFile()
+    const site = sites.find(s => s.id === id)
+    
+    if (!site) {
+      return res.status(404).json({ 
+        code: 404,
+        data: null,
+        msg: '站点不存在'
+      })
+    }
+
+    // 统一返回格式
+    return res.json({
+      code: 200,
+      data: site,
+      msg: '成功'
+    })
   } catch (err) {
     console.error('服务器错误:', err)
-    res.status(500).json({ error: '服务器内部错误', details: err.message })
+    return res.status(500).json({ 
+      code: 500,
+      data: null,
+      msg: '服务器内部错误',
+      error: err.message 
+    })
   }
 })
 
@@ -1012,37 +1169,74 @@ app.get('/api/xhs/sites/:id', async (req, res) => {
 app.put('/api/xhs/sites/:id', async (req, res) => {
   try {
     const { id } = req.params
-    const { site_name, content, images, tags, notes } = req.body
+    const { site_name, content, images, tags, notes, xhs_url } = req.body
 
     // 构建更新对象
     const updates = {}
-    if (site_name) updates.site_name = site_name
+    if (site_name !== undefined) updates.site_name = site_name
     if (content !== undefined) updates.content = content
     if (images !== undefined) updates.images = images
     if (tags !== undefined) updates.tags = tags
     if (notes !== undefined) updates.notes = notes
+    if (xhs_url !== undefined) updates.xhs_url = xhs_url
     updates.updated_at = new Date().toISOString()
 
-    const { data, error } = await supabase
-      .from('xhs_sites')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single()
+    // 【修复1】检查Supabase是否配置且可用
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('xhs_sites')
+          .update(updates)
+          .eq('id', id)
+          .select()
+          .single()
 
-    if (error) {
-      console.error('更新站点失败:', error)
-      return res.status(500).json({ error: '更新站点失败', details: error.message })
+        if (error) throw error
+
+        if (!data) {
+          return res.status(404).json({ error: '站点不存在' })
+        }
+
+        return res.json(data)
+      } catch (dbError) {
+        console.warn('⚠️ Supabase更新失败，切换到JSON文件:', dbError.message)
+      }
     }
 
-    if (!data) {
-      return res.status(404).json({ error: '站点不存在' })
-    }
+    // 【修复2】使用JSON文件更新
+    try {
+      ensureDataDir()
+      const sites = readSitesFromFile()
+      const index = sites.findIndex(s => s.id === id)
+      
+      if (index === -1) {
+        return res.status(404).json({ error: '站点不存在' })
+      }
 
-    res.json(data)
+      // 更新站点数据（保留原有字段，只更新提供的字段）
+      sites[index] = {
+        ...sites[index],
+        ...updates
+      }
+
+      // 写入JSON文件
+      fs.writeFileSync(SITES_JSON_PATH, JSON.stringify(sites, null, 2), 'utf-8')
+      
+      console.log('✅ 站点已更新到JSON文件:', id)
+      return res.json(sites[index])
+    } catch (fileError) {
+      console.error('更新JSON文件失败:', fileError)
+      return res.status(500).json({ 
+        error: '更新站点失败', 
+        details: fileError.message 
+      })
+    }
   } catch (err) {
     console.error('服务器错误:', err)
-    res.status(500).json({ error: '服务器内部错误', details: err.message })
+    return res.status(500).json({ 
+      error: '服务器内部错误', 
+      details: err.message 
+    })
   }
 })
 
@@ -1125,6 +1319,8 @@ app.post('/api/trips', async (req, res) => {
 // 获取所有行程 (GET /api/trips)
 app.get('/api/trips', async (req, res) => {
   try {
+    let tripsData = []
+    
     // 【修复11】检查Supabase是否配置且可用
     if (isSupabaseConfigured() && supabase) {
       try {
@@ -1134,20 +1330,36 @@ app.get('/api/trips', async (req, res) => {
           .order('created_at', { ascending: false })
 
         if (error) throw error
-        return res.json(data || [])
+        tripsData = data || []
       } catch (dbError) {
         console.warn('⚠️ Supabase查询失败，切换到JSON文件:', dbError.message)
+        // 如果Supabase查询失败，使用JSON文件
+        const trips = readTripsFromFile()
+        trips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        tripsData = trips || []
       }
+    } else {
+      // 使用JSON文件
+      const trips = readTripsFromFile()
+      trips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      tripsData = trips || []
     }
 
-    // 使用JSON文件
-    const trips = readTripsFromFile()
-    trips.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    return res.json(trips || [])
+    // 【统一修复2】统一返回格式：{ code: 200, data: [...], msg: "成功" }
+    return res.json({
+      code: 200,
+      data: tripsData,
+      msg: '成功'
+    })
 
   } catch (err) {
     console.error('服务器错误:', err)
-    return res.status(500).json({ error: '查询行程列表失败', details: err.message })
+    return res.status(500).json({ 
+      code: 500,
+      data: [],
+      msg: '查询行程列表失败',
+      error: err.message 
+    })
   }
 })
 
@@ -1234,14 +1446,64 @@ app.get('/api/trips/:id', async (req, res) => {
         })
     }
 
+    // 【新增9】获取手动录入的行程内容
+    let tripItems = []
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('trip_items')
+          .select('*')
+          .eq('trip_id', id)
+          .order('day_number', { ascending: true })
+          .order('sort_order', { ascending: true })
+
+        if (error) throw error
+        tripItems = data || []
+      } catch (dbError) {
+        console.warn('⚠️ Supabase查询行程内容失败，切换到JSON文件:', dbError.message)
+        // Supabase查询失败，使用JSON文件
+        const allTripItems = readTripItemsFromFile()
+        tripItems = allTripItems
+          .filter(item => item.trip_id === id)
+          .sort((a, b) => {
+            if (a.day_number !== b.day_number) {
+              return a.day_number - b.day_number
+            }
+            return (a.sort_order || 0) - (b.sort_order || 0)
+          })
+      }
+    } else {
+      // Supabase未配置，使用JSON文件
+      const allTripItems = readTripItemsFromFile()
+      tripItems = allTripItems
+        .filter(item => item.trip_id === id)
+        .sort((a, b) => {
+          if (a.day_number !== b.day_number) {
+            return a.day_number - b.day_number
+          }
+          return (a.sort_order || 0) - (b.sort_order || 0)
+        })
+    }
+
+    // 【统一修复3】统一返回格式：{ code: 200, data: {...}, msg: "成功" }
     return res.json({
-      ...trip,
-      sites: tripSites
+      code: 200,
+      data: {
+        ...trip,
+        sites: tripSites, // 关联的第三方攻略
+        items: tripItems  // 【新增10】手动录入的行程内容
+      },
+      msg: '成功'
     })
 
   } catch (err) {
     console.error('服务器错误:', err)
-    return res.status(500).json({ error: '查询行程失败', details: err.message })
+    return res.status(500).json({ 
+      code: 500,
+      data: null,
+      msg: '查询行程失败',
+      error: err.message 
+    })
   }
 })
 
@@ -1299,6 +1561,7 @@ app.delete('/api/trips/:id', async (req, res) => {
       try {
         const { error } = await supabase.from('trips').delete().eq('id', id)
         if (error) throw error
+        // 级联删除会自动删除关联的trip_sites和trip_items
         return res.json({ message: '行程删除成功' })
       } catch (dbError) {
         console.warn('⚠️ Supabase删除失败，切换到JSON文件:', dbError.message)
@@ -1307,6 +1570,9 @@ app.delete('/api/trips/:id', async (req, res) => {
 
     // 使用JSON文件
     deleteTripFromFile(id)
+    // 【新增8】同时删除关联的行程内容和攻略关联
+    deleteTripItemsFromFile(id)
+    deleteTripSitesFromFile(id)
     return res.json({ message: '行程删除成功' })
 
   } catch (err) {
@@ -1427,6 +1693,129 @@ app.put('/api/trips/:tripId/sites/:tripSiteId/order', async (req, res) => {
   } catch (err) {
     console.error('服务器错误:', err)
     return res.status(500).json({ error: '更新顺序失败', details: err.message })
+  }
+})
+
+// ==================== 行程内容（手动录入）接口 ====================
+
+// 给行程添加手动录入内容 (POST /api/trips/:tripId/items)
+app.post('/api/trips/:tripId/items', async (req, res) => {
+  try {
+    const { tripId } = req.params
+    const { place_name, address, description, duration, budget, notes, day_number, sort_order } = req.body
+
+    if (!place_name) {
+      return res.status(400).json({ error: '地点名称为必填项' })
+    }
+
+    const itemData = {
+      trip_id: tripId,
+      place_name,
+      address: address || '',
+      description: description || '',
+      duration: duration || '',
+      budget: budget || '',
+      notes: notes || '',
+      day_number: day_number || 1,
+      sort_order: sort_order || 0
+    }
+
+    // 【修复17】检查Supabase是否配置且可用
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('trip_items')
+          .insert([itemData])
+          .select()
+          .single()
+
+        if (error) throw error
+        return res.status(201).json(data)
+      } catch (dbError) {
+        console.warn('⚠️ Supabase保存失败，切换到JSON文件:', dbError.message)
+      }
+    }
+
+    // 使用JSON文件
+    const savedItem = saveTripItemToFile(itemData)
+    return res.status(201).json(savedItem)
+
+  } catch (err) {
+    console.error('服务器错误:', err)
+    return res.status(500).json({ error: '添加行程内容失败', details: err.message })
+  }
+})
+
+// 更新行程内容 (PUT /api/trips/:tripId/items/:itemId)
+app.put('/api/trips/:tripId/items/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params
+    const { place_name, address, description, duration, budget, notes, day_number, sort_order } = req.body
+
+    const updates = {}
+    if (place_name !== undefined) updates.place_name = place_name
+    if (address !== undefined) updates.address = address
+    if (description !== undefined) updates.description = description
+    if (duration !== undefined) updates.duration = duration
+    if (budget !== undefined) updates.budget = budget
+    if (notes !== undefined) updates.notes = notes
+    if (day_number !== undefined) updates.day_number = day_number
+    if (sort_order !== undefined) updates.sort_order = sort_order
+    updates.updated_at = new Date().toISOString()
+
+    // 【修复18】检查Supabase是否配置且可用
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('trip_items')
+          .update(updates)
+          .eq('id', itemId)
+          .select()
+          .single()
+
+        if (error) throw error
+        if (!data) {
+          return res.status(404).json({ error: '行程内容不存在' })
+        }
+        return res.json(data)
+      } catch (dbError) {
+        console.warn('⚠️ Supabase更新失败，切换到JSON文件:', dbError.message)
+      }
+    }
+
+    // 使用JSON文件
+    const updatedItem = updateTripItemInFile(itemId, updates)
+    return res.json(updatedItem)
+
+  } catch (err) {
+    console.error('服务器错误:', err)
+    return res.status(500).json({ error: '更新行程内容失败', details: err.message })
+  }
+})
+
+// 删除行程内容 (DELETE /api/trips/:tripId/items/:itemId)
+app.delete('/api/trips/:tripId/items/:itemId', async (req, res) => {
+  try {
+    const { itemId } = req.params
+
+    // 【修复19】检查supabase是否可用
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { error } = await supabase.from('trip_items').delete().eq('id', itemId)
+        if (error) throw error
+        return res.json({ message: '行程内容删除成功' })
+      } catch (dbError) {
+        console.warn('⚠️ Supabase删除失败，切换到JSON文件:', dbError.message)
+      }
+    }
+
+    // 使用JSON文件
+    deleteTripItemFromFile(itemId)
+    return res.json({ message: '行程内容删除成功' })
+
+  } catch (err) {
+    console.error('服务器错误:', err)
+    return res.status(500).json({ error: '删除行程内容失败', details: err.message })
   }
 })
 

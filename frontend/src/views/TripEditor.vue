@@ -96,14 +96,14 @@
           <p class="mt-1 whitespace-pre-line">{{ result.raw?.content || result.raw?.description || result.raw?.title || '未提取到' }}</p>
         </div>
 
-        <!-- 保存到站点库按钮 -->
+        <!-- 保存到第三方攻略库按钮 -->
         <div class="pt-4 border-t">
           <button
             @click="saveToSiteLibrary"
             :disabled="saving"
             class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {{ saving ? '保存中...' : '保存到站点库' }}
+            {{ saving ? '保存中...' : '保存到第三方攻略库' }}
           </button>
           <span v-if="saveSuccess" class="ml-4 text-green-600 text-sm">✓ 保存成功！</span>
         </div>
@@ -176,22 +176,28 @@ const parseLink = async () => {
   saveSuccess.value = false
 
   try {
-    // 调用后端解析接口
-    const { data } = await axios.post('http://localhost:3001/api/xhs/parse', {
+    // 【统一修复7】解析小红书链接 - 添加超时和统一错误处理
+    const { data } = await axios.post('http://localhost:3008/api/xhs/parse', {
       url: xhsUrl.value.trim()
+    }, {
+      timeout: 120000 // 120秒超时（解析可能需要较长时间）
     })
     result.value = data
   } catch (err) {
     console.error('解析失败', err)
-    error.value =
-      err?.response?.data?.error ||
-      '解析失败，请确认链接有效并检查后端服务是否已启动'
+    if (err.response) {
+      error.value = `解析失败: ${err.response.data?.error || err.response.data?.details || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      error.value = '解析失败：无法连接到后端服务（请确保后端服务在3008端口运行）'
+    } else {
+      error.value = `解析失败: ${err.message || '未知错误'}`
+    }
   } finally {
     loading.value = false
   }
 }
 
-// 保存到站点库
+// 保存到第三方攻略库
 const saveToSiteLibrary = async () => {
   if (!result.value || !xhsUrl.value) return
   
@@ -211,8 +217,10 @@ const saveToSiteLibrary = async () => {
     
     console.log('💾 准备保存站点数据:', siteData) // 调试日志
     
-    // 调用保存接口
-    await axios.post('http://localhost:3001/api/xhs/sites', siteData)
+    // 【统一修复8】保存到第三方攻略库 - 添加超时和统一错误处理
+    await axios.post('http://localhost:3008/api/xhs/sites', siteData, {
+      timeout: 10000
+    })
     
     saveSuccess.value = true
     // 3秒后隐藏成功提示

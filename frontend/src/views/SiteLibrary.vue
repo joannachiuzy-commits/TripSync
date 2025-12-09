@@ -3,7 +3,7 @@
     <!-- 标题和搜索 -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold text-gray-800">站点库管理</h1>
+        <h1 class="text-3xl font-bold text-gray-800">第三方攻略库管理</h1>
         <p class="text-gray-600 mt-1">管理保存的小红书站点信息</p>
       </div>
       <div class="flex gap-2">
@@ -32,8 +32,13 @@
     </div>
 
     <!-- 错误提示 -->
-    <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+    <div v-if="error" class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
       {{ error }}
+    </div>
+
+    <!-- 成功提示 -->
+    <div v-if="successMessage" class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+      {{ successMessage }}
     </div>
 
     <!-- 站点列表 -->
@@ -133,12 +138,36 @@
         <div class="space-y-4">
           <!-- 站点名称 -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">站点名称</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">站点名称 *</label>
             <input
               v-model="editForm.site_name"
               type="text"
               class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             />
+          </div>
+
+          <!-- 原链接 -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">原链接</label>
+            <input
+              v-model="editForm.xhs_url"
+              type="url"
+              placeholder="https://www.xiaohongshu.com/..."
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+            />
+            <p class="text-xs text-gray-500 mt-1">小红书原始链接</p>
+          </div>
+
+          <!-- 站点描述 -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">站点描述</label>
+            <textarea
+              v-model="editForm.content"
+              rows="4"
+              placeholder="站点的详细描述、体验内容等..."
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+            ></textarea>
+            <p class="text-xs text-gray-500 mt-1">从小红书解析的原始内容</p>
           </div>
 
           <!-- 标签 -->
@@ -158,6 +187,7 @@
             <textarea
               v-model="editForm.notes"
               rows="3"
+              placeholder="其他备注信息..."
               class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             ></textarea>
           </div>
@@ -193,6 +223,8 @@ const sites = ref([])
 const loading = ref(false)
 // 错误信息
 const error = ref('')
+// 成功信息
+const successMessage = ref('')
 // 搜索关键词
 const searchKeyword = ref('')
 // 选中的标签
@@ -202,6 +234,8 @@ const editingSite = ref(null)
 // 编辑表单
 const editForm = ref({
   site_name: '',
+  xhs_url: '',
+  content: '',
   tagsText: '',
   notes: ''
 })
@@ -223,6 +257,7 @@ const fetchSites = async () => {
   error.value = ''
   
   try {
+    // 【统一修复4】获取第三方攻略库列表 - 添加超时和统一错误处理
     const params = {}
     if (searchKeyword.value) {
       params.search = searchKeyword.value
@@ -231,11 +266,21 @@ const fetchSites = async () => {
       params.tag = selectedTag.value
     }
     
-    const { data } = await axios.get('http://localhost:3001/api/xhs/sites', { params })
+    const { data } = await axios.get('http://localhost:3008/api/xhs/sites', { 
+      params,
+      timeout: 10000
+    })
     sites.value = data || []
   } catch (err) {
     console.error('获取站点列表失败', err)
-    error.value = '获取站点列表失败，请检查后端服务是否已启动'
+    if (err.response) {
+      error.value = `获取站点列表失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      error.value = '获取站点列表失败：无法连接到后端服务（请确保后端服务在3008端口运行）'
+    } else {
+      error.value = `获取站点列表失败: ${err.message || '未知错误'}`
+    }
+    sites.value = []
   } finally {
     loading.value = false
   }
@@ -251,6 +296,8 @@ const editSite = (site) => {
   editingSite.value = site
   editForm.value = {
     site_name: site.site_name || '',
+    xhs_url: site.xhs_url || '',
+    content: site.content || '',
     tagsText: site.tags ? site.tags.join(',') : '',
     notes: site.notes || ''
   }
@@ -260,23 +307,47 @@ const editSite = (site) => {
 const saveEdit = async () => {
   if (!editingSite.value) return
   
+  if (!editForm.value.site_name) {
+    error.value = '站点名称不能为空'
+    return
+  }
+  
   try {
+    // 【修复1】更新第三方攻略 - 添加超时和统一错误处理，包含完整字段
     const tags = editForm.value.tagsText
       .split(',')
       .map(t => t.trim())
       .filter(t => t)
     
-    await axios.put(`http://localhost:3001/api/xhs/sites/${editingSite.value.id}`, {
+    await axios.put(`http://localhost:3008/api/xhs/sites/${editingSite.value.id}`, {
       site_name: editForm.value.site_name,
+      xhs_url: editForm.value.xhs_url || editingSite.value.xhs_url || '',
+      content: editForm.value.content || editingSite.value.content || '',
       tags: tags,
-      notes: editForm.value.notes
+      notes: editForm.value.notes || ''
+    }, {
+      timeout: 10000
     })
+    
+    successMessage.value = '保存成功！'
+    error.value = '' // 清空错误信息
+    
+    // 3秒后自动清除成功提示
+    setTimeout(() => {
+      successMessage.value = ''
+    }, 3000)
     
     closeEditModal()
     fetchSites()
   } catch (err) {
     console.error('保存失败', err)
-    error.value = err?.response?.data?.error || '保存失败，请稍后重试'
+    if (err.response) {
+      error.value = `保存失败: ${err.response.data?.error || err.response.data?.details || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      error.value = '保存失败：无法连接到后端服务'
+    } else {
+      error.value = `保存失败: ${err.message || '未知错误'}`
+    }
   }
 }
 
@@ -285,9 +356,13 @@ const closeEditModal = () => {
   editingSite.value = null
   editForm.value = {
     site_name: '',
+    xhs_url: '',
+    content: '',
     tagsText: '',
     notes: ''
   }
+  error.value = '' // 清空错误信息
+  successMessage.value = '' // 清空成功信息
 }
 
 // 删除站点
@@ -295,11 +370,20 @@ const deleteSite = async (siteId) => {
   if (!confirm('确定要删除这个站点吗？')) return
   
   try {
-    await axios.delete(`http://localhost:3001/api/xhs/sites/${siteId}`)
+    // 【统一修复6】删除第三方攻略 - 添加超时和统一错误处理
+    await axios.delete(`http://localhost:3008/api/xhs/sites/${siteId}`, {
+      timeout: 10000
+    })
     fetchSites()
   } catch (err) {
     console.error('删除失败', err)
-    error.value = err?.response?.data?.error || '删除失败，请稍后重试'
+    if (err.response) {
+      error.value = `删除失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      error.value = '删除失败：无法连接到后端服务'
+    } else {
+      error.value = `删除失败: ${err.message || '未知错误'}`
+    }
   }
 }
 
