@@ -93,12 +93,24 @@
 
         <div class="bg-gray-50 rounded-md p-3 text-sm text-gray-600">
           <p class="font-medium text-gray-700">原始摘要</p>
-          <p class="mt-1 whitespace-pre-line">{{ result.raw?.description || result.raw?.title }}</p>
+          <p class="mt-1 whitespace-pre-line">{{ result.raw?.content || result.raw?.description || result.raw?.title || '未提取到' }}</p>
+        </div>
+
+        <!-- 保存到站点库按钮 -->
+        <div class="pt-4 border-t">
+          <button
+            @click="saveToSiteLibrary"
+            :disabled="saving"
+            class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {{ saving ? '保存中...' : '保存到站点库' }}
+          </button>
+          <span v-if="saveSuccess" class="ml-4 text-green-600 text-sm">✓ 保存成功！</span>
         </div>
       </div>
 
       <div v-else class="text-gray-500 text-sm">
-        粘贴链接并点击“解析小红书”查看结果
+        粘贴链接并点击"解析小红书"查看结果
       </div>
     </div>
 
@@ -126,6 +138,9 @@ const result = ref(null)
 const loading = ref(false)
 // 错误信息
 const error = ref('')
+// 保存状态
+const saving = ref(false)
+const saveSuccess = ref(false)
 
 // 处理粘贴事件，自动提取小红书链接
 const handlePaste = (event) => {
@@ -158,6 +173,7 @@ const parseLink = async () => {
   loading.value = true
   error.value = ''
   result.value = null
+  saveSuccess.value = false
 
   try {
     // 调用后端解析接口
@@ -172,6 +188,42 @@ const parseLink = async () => {
       '解析失败，请确认链接有效并检查后端服务是否已启动'
   } finally {
     loading.value = false
+  }
+}
+
+// 保存到站点库
+const saveToSiteLibrary = async () => {
+  if (!result.value || !xhsUrl.value) return
+  
+  saving.value = true
+  saveSuccess.value = false
+  
+  try {
+    // 构建保存数据（【修复3】确保所有字段都正确传递）
+    const siteData = {
+      site_name: result.value.name || '未命名站点',
+      xhs_url: xhsUrl.value.trim(),
+      content: result.value.raw?.content || result.value.raw?.description || result.value.raw?.title || '', // 【修复3-1】优先使用content字段
+      images: result.value.images || [],
+      tags: result.value.keywords || [],
+      notes: ''
+    }
+    
+    console.log('💾 准备保存站点数据:', siteData) // 调试日志
+    
+    // 调用保存接口
+    await axios.post('http://localhost:3001/api/xhs/sites', siteData)
+    
+    saveSuccess.value = true
+    // 3秒后隐藏成功提示
+    setTimeout(() => {
+      saveSuccess.value = false
+    }, 3000)
+  } catch (err) {
+    console.error('保存失败', err)
+    error.value = err?.response?.data?.error || '保存失败，请稍后重试'
+  } finally {
+    saving.value = false
   }
 }
 </script>

@@ -12,9 +12,6 @@ const supabaseKey = process.env.SUPABASE_KEY || 'your-supabase-key'
 export const supabase = createClient(supabaseUrl, supabaseKey)
 
 // 说明：此文件被后端服务直接导入
-/**
- * 
-
 
 /**
  * 数据库表结构示例（在Supabase SQL编辑器中执行）：
