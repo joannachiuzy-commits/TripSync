@@ -1958,7 +1958,7 @@ app.post('/api/trips/:tripId/items', async (req, res) => {
 app.put('/api/trips/:tripId/items/:itemId', async (req, res) => {
   try {
     const { itemId } = req.params
-    const { place_name, address, description, duration, budget, notes, day_number, sort_order } = req.body
+    const { place_name, address, description, duration, budget, notes, day_number, sort_order, lat, lng } = req.body
 
     const updates = {}
     if (place_name !== undefined) updates.place_name = place_name
@@ -1969,6 +1969,8 @@ app.put('/api/trips/:tripId/items/:itemId', async (req, res) => {
     if (notes !== undefined) updates.notes = notes
     if (day_number !== undefined) updates.day_number = day_number
     if (sort_order !== undefined) updates.sort_order = sort_order
+    if (lat !== undefined) updates.lat = lat
+    if (lng !== undefined) updates.lng = lng
     updates.updated_at = new Date().toISOString()
 
     // 【修复18】检查Supabase是否配置且可用
@@ -2027,11 +2029,288 @@ app.delete('/api/trips/:tripId/items/:itemId', async (req, res) => {
   }
 })
 
+// ==================== 地图API接口 ====================
+
+// 高德地图API Key（从环境变量获取）
+const AMAP_API_KEY = process.env.AMAP_API_KEY || 'YOUR_AMAP_API_KEY'
+// Google Maps API Key（从环境变量获取）
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || 'YOUR_GOOGLE_API_KEY'
+
+/**
+ * POST /api/maps/reverse-geocode
+ * 逆地理编码：将坐标转换为地址（优先使用高德地图）
+ * 请求体: { lng: 116.397428, lat: 39.90923 }
+ * 返回: { address: '北京市东城区xxx' }
+ */
+app.post('/api/maps/reverse-geocode', async (req, res) => {
+  const { lng, lat } = req.body || {}
+  
+  if (!lng || !lat) {
+    return res.status(400).json({ error: '请提供坐标参数 lng 和 lat' })
+  }
+  
+  try {
+    // 优先使用高德地图逆地理编码
+    const amapUrl = `https://restapi.amap.com/v3/geocode/regeo`
+    const amapResponse = await fetch(`${amapUrl}?key=${AMAP_API_KEY}&location=${lng},${lat}&radius=1000&extensions=all`)
+    const amapData = await amapResponse.json()
+    
+    if (amapData.status === '1' && amapData.regeocode) {
+      const address = amapData.regeocode.formatted_address || amapData.regeocode.addressComponent?.province + amapData.regeocode.addressComponent?.city + amapData.regeocode.addressComponent?.district
+      return res.json({
+        code: 200,
+        data: {
+          address: address || ''
+        },
+        msg: '成功'
+      })
+    }
+    
+    // 如果高德地图失败，尝试Google Maps
+    if (GOOGLE_API_KEY && GOOGLE_API_KEY !== 'YOUR_GOOGLE_API_KEY') {
+      const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json`
+      const googleResponse = await fetch(`${googleUrl}?key=${GOOGLE_API_KEY}&latlng=${lat},${lng}`)
+      const googleData = await googleResponse.json()
+      
+      if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+        return res.json({
+          code: 200,
+          data: {
+            address: googleData.results[0].formatted_address || ''
+          },
+          msg: '成功'
+        })
+      }
+    }
+    
+    return res.status(404).json({ error: '未找到该坐标的地址' })
+  } catch (err) {
+    console.error('逆地理编码失败:', err)
+    return res.status(500).json({ error: '逆地理编码失败', details: err.message })
+  }
+})
+
+/**
+ * POST /api/maps/geocode
+ * 地理编码：将地址转换为坐标（优先使用高德地图）
+ * 请求体: { address: '北京市朝阳区xxx' }
+ * 返回: { lat: 39.90923, lng: 116.397428 }
+ */
+app.post('/api/maps/geocode', async (req, res) => {
+  const { address } = req.body || {}
+  
+  if (!address) {
+    return res.status(400).json({ error: '请提供地址参数' })
+  }
+  
+  try {
+    // 优先使用高德地图地理编码
+    const amapUrl = `https://restapi.amap.com/v3/geocode/geo`
+    const amapResponse = await fetch(`${amapUrl}?key=${AMAP_API_KEY}&address=${encodeURIComponent(address)}`)
+    const amapData = await amapResponse.json()
+    
+    if (amapData.status === '1' && amapData.geocodes && amapData.geocodes.length > 0) {
+      const location = amapData.geocodes[0].location.split(',')
+      return res.json({
+        code: 200,
+        data: {
+          lat: parseFloat(location[1]),
+          lng: parseFloat(location[0])
+        },
+        msg: '成功'
+      })
+    }
+    
+    // 如果高德地图失败，尝试Google Maps
+    if (GOOGLE_API_KEY && GOOGLE_API_KEY !== 'YOUR_GOOGLE_API_KEY') {
+      const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json`
+      const googleResponse = await fetch(`${googleUrl}?key=${GOOGLE_API_KEY}&address=${encodeURIComponent(address)}`)
+      const googleData = await googleResponse.json()
+      
+      if (googleData.status === 'OK' && googleData.results && googleData.results.length > 0) {
+        const location = googleData.results[0].geometry.location
+        return res.json({
+          code: 200,
+          data: {
+            lat: location.lat,
+            lng: location.lng
+          },
+          msg: '成功'
+        })
+      }
+    }
+    
+    return res.status(404).json({ error: '未找到该地址的坐标' })
+  } catch (err) {
+    console.error('地理编码失败:', err)
+    return res.status(500).json({ error: '地理编码失败', details: err.message })
+  }
+})
+
+/**
+ * POST /api/maps/route/amap
+ * 高德地图路线规划
+ * 请求体: { coordinates: [{ lng: 116.397428, lat: 39.90923, name: '地点1' }, ...] }
+ * 返回: { distance: '10公里', duration: '30分钟', steps: [...], path: [...] }
+ */
+app.post('/api/maps/route/amap', async (req, res) => {
+  const { coordinates } = req.body || {}
+  
+  if (!coordinates || coordinates.length < 2) {
+    return res.status(400).json({ error: '请提供至少2个坐标点' })
+  }
+  
+  try {
+    // 构建高德地图路径规划URL
+    const waypoints = coordinates.map(c => `${c.lng},${c.lat}`).join('|')
+    const url = `https://restapi.amap.com/v3/direction/driving?key=${AMAP_API_KEY}&origin=${waypoints.split('|')[0]}&destination=${waypoints.split('|')[waypoints.split('|').length - 1]}&waypoints=${waypoints.split('|').slice(1, -1).join('|')}&extensions=all`
+    
+    const response = await fetch(url)
+    const data = await response.json()
+    
+    if (data.status === '1' && data.route && data.route.paths && data.route.paths.length > 0) {
+      const path = data.route.paths[0]
+      const steps = path.steps.map((step, index) => ({
+        instruction: step.instruction || `第${index + 1}步`,
+        distance: step.distance ? `${(step.distance / 1000).toFixed(2)}公里` : '',
+        duration: step.duration ? `${Math.round(step.duration / 60)}分钟` : ''
+      }))
+      
+      // 提取路径点
+      const pathPoints = path.steps.flatMap(step => {
+        const polyline = step.polyline.split(';')
+        return polyline.map(point => {
+          const [lng, lat] = point.split(',')
+          return { lng: parseFloat(lng), lat: parseFloat(lat) }
+        })
+      })
+      
+      return res.json({
+        code: 200,
+        data: {
+          distance: path.distance ? `${(path.distance / 1000).toFixed(2)}公里` : '未知',
+          duration: path.duration ? `${Math.round(path.duration / 60)}分钟` : '未知',
+          steps: steps,
+          path: pathPoints
+        },
+        msg: '成功'
+      })
+    }
+    
+    return res.status(404).json({ error: '路线规划失败' })
+  } catch (err) {
+    console.error('高德地图路线规划失败:', err)
+    return res.status(500).json({ error: '路线规划失败', details: err.message })
+  }
+})
+
+/**
+ * POST /api/maps/route/google
+ * Google Maps路线规划
+ * 请求体: { coordinates: [{ lng: 116.397428, lat: 39.90923, name: '地点1' }, ...] }
+ * 返回: { distance: '10公里', duration: '30分钟', steps: [...], path: [...] }
+ */
+app.post('/api/maps/route/google', async (req, res) => {
+  const { coordinates } = req.body || {}
+  
+  if (!coordinates || coordinates.length < 2) {
+    return res.status(400).json({ error: '请提供至少2个坐标点' })
+  }
+  
+  if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY') {
+    return res.status(400).json({ error: 'Google Maps API Key未配置' })
+  }
+  
+  try {
+    // 构建Google Maps路径规划URL
+    const origin = `${coordinates[0].lat},${coordinates[0].lng}`
+    const destination = `${coordinates[coordinates.length - 1].lat},${coordinates[coordinates.length - 1].lng}`
+    const waypoints = coordinates.slice(1, -1).map(c => `${c.lat},${c.lng}`).join('|')
+    
+    let url = `https://maps.googleapis.com/maps/api/directions/json?key=${GOOGLE_API_KEY}&origin=${origin}&destination=${destination}`
+    if (waypoints) {
+      url += `&waypoints=${waypoints}`
+    }
+    
+    const response = await fetch(url)
+    const data = await response.json()
+    
+    if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0]
+      const leg = route.legs[0]
+      
+      const steps = route.legs.flatMap(leg => 
+        leg.steps.map((step, index) => ({
+          instruction: step.html_instructions.replace(/<[^>]*>/g, '') || `第${index + 1}步`,
+          distance: step.distance ? step.distance.text : '',
+          duration: step.duration ? step.duration.text : ''
+        }))
+      )
+      
+      // 提取路径点
+      const pathPoints = route.overview_polyline.points
+        ? decodePolyline(route.overview_polyline.points)
+        : []
+      
+      return res.json({
+        code: 200,
+        data: {
+          distance: leg.distance ? leg.distance.text : '未知',
+          duration: leg.duration ? leg.duration.text : '未知',
+          steps: steps,
+          path: pathPoints
+        },
+        msg: '成功'
+      })
+    }
+    
+    return res.status(404).json({ error: '路线规划失败', details: data.status })
+  } catch (err) {
+    console.error('Google Maps路线规划失败:', err)
+    return res.status(500).json({ error: '路线规划失败', details: err.message })
+  }
+})
+
+// 解码Google Maps Polyline
+function decodePolyline(encoded) {
+  const points = []
+  let index = 0
+  const len = encoded.length
+  let lat = 0
+  let lng = 0
+  
+  while (index < len) {
+    let b, shift = 0, result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlat = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1))
+    lat += dlat
+    
+    shift = 0
+    result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlng = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1))
+    lng += dlng
+    
+    points.push({ lat: lat * 1e-5, lng: lng * 1e-5 })
+  }
+  
+  return points
+}
+
 // ==================== 启动服务器 ====================
 app.listen(PORT, () => {
   console.log(`🚀 TripSync后端服务运行在 http://localhost:${PORT}`)
   console.log(`📝 健康检查: http://localhost:${PORT}/api/health`)
   console.log(`⚠️  请确保已配置Supabase连接信息`)
+  console.log(`🗺️  地图API: 高德地图=${AMAP_API_KEY !== 'YOUR_AMAP_API_KEY' ? '已配置' : '未配置'}, Google Maps=${GOOGLE_API_KEY !== 'YOUR_GOOGLE_API_KEY' ? '已配置' : '未配置'}`)
 })
 
 

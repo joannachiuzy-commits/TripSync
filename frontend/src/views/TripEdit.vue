@@ -135,6 +135,12 @@
                 </div>
               </div>
               <div class="flex gap-2">
+                <button
+                  @click="editItem(item)"
+                  class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                >
+                  编辑
+                </button>
                 <select
                   :value="item.day_number"
                   @change="updateItemDay(item.id, parseInt($event.target.value))"
@@ -161,14 +167,21 @@
       </div>
     </div>
 
-    <!-- 【重构4】添加行程内容弹窗 - 移除页签，改为单一手动输入区域 -->
+    <!-- 【新增功能】地图选点弹窗 -->
+    <MapPicker
+      :show="showMapPicker"
+      @close="showMapPicker = false"
+      @confirm="handleMapPickerConfirm"
+    />
+
+    <!-- 【重构4】添加/编辑行程内容弹窗 - 移除页签，改为单一手动输入区域 -->
     <div
       v-if="showAddContentModal"
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       @click.self="closeAddContentModal"
     >
       <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <h2 class="text-2xl font-bold text-gray-800 mb-4">添加行程内容</h2>
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">{{ isEditing ? '编辑行程内容' : '添加行程内容' }}</h2>
 
         <!-- 选择天数 -->
         <div class="mb-4">
@@ -197,12 +210,21 @@
 
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">地址</label>
-            <input
-              v-model="manualForm.address"
-              type="text"
-              placeholder="例如：东京都港区芝公园4-2-8"
-              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
-            />
+            <div class="flex gap-2">
+              <input
+                v-model="manualForm.address"
+                type="text"
+                placeholder="例如：东京都港区芝公园4-2-8"
+                class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              />
+              <button
+                @click="showMapPicker = true"
+                type="button"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap"
+              >
+                🗺️ 地图选点
+              </button>
+            </div>
           </div>
 
           <!-- 【重构6】行程描述 - 支持混合输入（文本+可跳转站点） -->
@@ -264,11 +286,11 @@
 
         <div class="mt-4 pt-4 border-t flex gap-2">
           <button
-            @click="addManualItem"
+            @click="isEditing ? updateItem() : addManualItem()"
             :disabled="!manualForm.place_name || adding"
             class="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-60"
           >
-            {{ adding ? '添加中...' : '添加' }}
+            {{ adding ? (isEditing ? '更新中...' : '添加中...') : (isEditing ? '更新' : '添加') }}
           </button>
           <button
             @click="closeAddContentModal"
@@ -405,6 +427,7 @@
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
+import MapPicker from '../components/MapPicker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -429,7 +452,9 @@ const manualForm = ref({
   description: '',
   duration: '',
   budget: '',
-  notes: ''
+  notes: '',
+  lat: null,
+  lng: null
 })
 
 // 素材库站点选择相关
@@ -439,6 +464,13 @@ const siteSearch = ref('')
 // 站点详情相关
 const showSiteDetail = ref(false)
 const selectedSiteDetail = ref(null)
+
+// 地图选点相关
+const showMapPicker = ref(false)
+
+// 编辑相关
+const editingItem = ref(null)
+const isEditing = ref(false)
 
 // 获取行程详情
 const fetchTripDetail = async () => {
@@ -757,6 +789,8 @@ const updateItemDay = async (itemId, dayNumber) => {
 // 关闭添加内容弹窗
 const closeAddContentModal = () => {
   showAddContentModal.value = false
+  isEditing.value = false
+  editingItem.value = null
   selectedDay.value = 1
   manualForm.value = {
     place_name: '',
@@ -764,9 +798,86 @@ const closeAddContentModal = () => {
     description: '',
     duration: '',
     budget: '',
-    notes: ''
+    notes: '',
+    lat: null,
+    lng: null
   }
   cursorPosition.value = 0
+}
+
+// 地图选点确认
+const handleMapPickerConfirm = async (location) => {
+  manualForm.value.address = location.address || ''
+  manualForm.value.lat = location.lat
+  manualForm.value.lng = location.lng
+  
+  // 如果地址为空，尝试逆地理编码获取地址
+  if (!location.address && location.lat && location.lng) {
+    try {
+      const response = await axios.post('http://localhost:3008/api/maps/reverse-geocode', {
+        lng: location.lng,
+        lat: location.lat
+      }, {
+        timeout: 5000
+      })
+      
+      if (response.data && response.data.code === 200 && response.data.data.address) {
+        manualForm.value.address = response.data.data.address
+      }
+    } catch (err) {
+      console.warn('逆地理编码失败', err)
+    }
+  }
+}
+
+// 编辑行程内容
+const editItem = (item) => {
+  editingItem.value = { ...item }
+  isEditing.value = true
+  manualForm.value = {
+    place_name: item.place_name || '',
+    address: item.address || '',
+    description: item.description || '',
+    duration: item.duration || '',
+    budget: item.budget || '',
+    notes: item.notes || '',
+    lat: item.lat || null,
+    lng: item.lng || null
+  }
+  selectedDay.value = item.day_number || 1
+  showAddContentModal.value = true
+}
+
+// 更新行程内容
+const updateItem = async () => {
+  if (!manualForm.value.place_name) {
+    error.value = '地点名称不能为空'
+    return
+  }
+  
+  adding.value = true
+  
+  try {
+    await axios.put(`http://localhost:3008/api/trips/${route.params.id}/items/${editingItem.value.id}`, {
+      ...manualForm.value,
+      day_number: selectedDay.value
+    }, {
+      timeout: 10000
+    })
+    closeAddContentModal()
+    fetchTripDetail()
+  } catch (err) {
+    console.error('更新行程内容失败', err)
+    if (err.response) {
+      error.value = `更新行程内容失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
+    } else if (err.request) {
+      error.value = '更新行程内容失败：无法连接到后端服务'
+    } else {
+      error.value = `更新行程内容失败: ${err.message || '未知错误'}`
+    }
+  } finally {
+    adding.value = false
+  }
 }
 
 // 组件挂载时获取数据

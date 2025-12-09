@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "id": "trip_item_1765272654281_5merqowkv",
+    "trip_id": "trip_1765254062925_j3kok72bv",
+    "place_name": "乐天水族馆",
+    "address": "",
+    "description": "早上乐天水族馆，下午休息，晚上倒数",
+    "duration": "3小时",
+    "budget": "",
+    "notes": "",
+    "day_number": 1,
+    "sort_order": 0,
+    "created_at": "2025-12-09T09:30:54.281Z",
+    "updated_at": "2025-12-09T09:30:54.281Z"
+  }
+]

@@ -1,141 +1,294 @@
 # TripSync 项目结构说明
 
-## 📂 完整目录结构
+## 📁 项目目录结构
 
 ```
 TripSync/
-├── frontend/                          # Vue3前端项目
-│   ├── src/                           # 源代码目录
-│   │   ├── views/                     # 页面组件
-│   │   │   ├── Home.vue              # 首页组件
-│   │   │   └── GuideList.vue         # 攻略列表页组件
-│   │   ├── router/                    # 路由配置
-│   │   │   └── index.js              # 路由定义文件
-│   │   ├── App.vue                    # 根组件（包含导航栏）
-│   │   ├── main.js                    # 应用入口文件
-│   │   └── style.css                  # 全局样式（包含Tailwind导入）
-│   ├── index.html                     # HTML模板
-│   ├── package.json                   # 前端依赖配置
-│   ├── vite.config.js                 # Vite构建配置
-│   ├── tailwind.config.js             # Tailwind CSS配置
-│   ├── postcss.config.js              # PostCSS配置
-│   └── .gitignore                     # Git忽略文件
-│
-├── backend/                           # Express后端项目
-│   ├── config/                        # 配置文件目录
-│   │   └── supabase.example.js       # Supabase配置示例
-│   ├── database/                      # 数据库相关文件
-│   │   └── init.sql                   # 数据库初始化SQL脚本
-│   ├── server.js                      # Express服务器主文件
-│   ├── package.json                   # 后端依赖配置
-│   ├── env.example                    # 环境变量配置示例
-│   └── .gitignore                     # Git忽略文件
-│
-├── README.md                          # 项目主文档
-├── QUICKSTART.md                      # 快速启动指南
-├── PROJECT_STRUCTURE.md              # 项目结构说明（本文件）
-└── package.json                       # 根目录依赖（Supabase客户端）
-
+├── README.md                    # 项目主文档
+├── QUICKSTART.md                # 快速启动指南
+├── frontend/                    # Vue3前端项目
+│   ├── src/
+│   │   ├── components/          # 组件目录
+│   │   │   └── MapPicker.vue   # 地图选点组件（用于行程编辑）
+│   │   ├── views/               # 页面组件
+│   │   │   ├── Home.vue        # 首页
+│   │   │   ├── GuideList.vue    # 攻略列表页
+│   │   │   ├── SiteLibrary.vue # 第三方攻略库管理页
+│   │   │   ├── TripEditor.vue  # 小红书链接解析页
+│   │   │   ├── TripEdit.vue    # 行程编辑页
+│   │   │   └── TripManagement.vue # 行程管理页
+│   │   ├── router/
+│   │   │   └── index.js        # 路由配置
+│   │   ├── App.vue             # 根组件
+│   │   ├── main.js             # 入口文件
+│   │   └── style.css           # 全局样式
+│   ├── index.html              # HTML入口文件
+│   ├── package.json            # 前端依赖配置
+│   ├── vite.config.js          # Vite构建配置
+│   ├── tailwind.config.js      # Tailwind CSS配置
+│   ├── postcss.config.js       # PostCSS配置
+│   └── .gitignore              # Git忽略文件
+├── backend/                    # Express后端项目
+│   ├── server.js               # 服务器主文件（所有API接口）
+│   ├── config/
+│   │   └── supabase.js         # Supabase数据库配置
+│   ├── database/               # 数据库SQL脚本
+│   │   ├── init.sql            # 数据库初始化脚本
+│   │   ├── sites.sql           # 站点表结构
+│   │   └── trips.sql           # 行程表结构
+│   ├── data/                   # JSON数据文件（Supabase未配置时使用）
+│   │   ├── xhs_sites.json      # 小红书站点数据
+│   │   ├── trips.json          # 行程数据
+│   │   ├── trip_sites.json     # 行程-站点关联数据
+│   │   └── trip_items.json     # 行程内容数据
+│   ├── package.json            # 后端依赖配置
+│   └── .gitignore              # Git忽略文件
+└── package.json                # 根目录package.json（可选）
 ```
+
+---
 
 ## 📄 文件说明
 
-### 前端文件
+### 根目录文件
 
 | 文件 | 说明 |
 |------|------|
-| `frontend/src/main.js` | Vue应用入口，初始化应用和路由 |
-| `frontend/src/App.vue` | 根组件，包含导航栏和路由视图 |
-| `frontend/src/router/index.js` | 路由配置，定义页面路由规则 |
-| `frontend/src/views/Home.vue` | 首页组件，展示应用介绍 |
-| `frontend/src/views/GuideList.vue` | 攻略列表页，展示所有攻略 |
-| `frontend/vite.config.js` | Vite配置，包含代理设置 |
-| `frontend/tailwind.config.js` | Tailwind主题和样式配置 |
+| `README.md` | 项目主文档，包含项目介绍、功能说明、技术栈等 |
+| `QUICKSTART.md` | 快速启动指南，5分钟快速上手指南 |
 
-### 后端文件
+---
+
+### 前端文件（frontend/）
+
+#### 核心文件
+
+| 文件/目录 | 说明 |
+|----------|------|
+| `src/main.js` | Vue应用入口文件，初始化Vue应用和路由 |
+| `src/App.vue` | 根组件，包含导航栏和路由视图 |
+| `src/style.css` | 全局样式文件 |
+| `index.html` | HTML入口文件 |
+| `package.json` | 前端依赖配置（Vue3、Vite、Tailwind CSS等） |
+| `vite.config.js` | Vite构建工具配置 |
+| `tailwind.config.js` | Tailwind CSS配置 |
+| `postcss.config.js` | PostCSS配置（Tailwind CSS需要） |
+
+#### 组件目录（src/components/）
 
 | 文件 | 说明 |
 |------|------|
-| `backend/server.js` | Express服务器主文件，包含所有API路由 |
-| `backend/database/init.sql` | 数据库表创建和初始化脚本 |
-| `backend/config/supabase.example.js` | Supabase连接配置示例 |
-| `backend/env.example` | 环境变量配置模板 |
+| `MapPicker.vue` | 地图选点组件，用于行程编辑时选择地点位置 |
 
-## 🔄 数据流
+#### 页面组件（src/views/）
 
+| 文件 | 说明 |
+|------|------|
+| `Home.vue` | 首页，展示应用介绍和快速导航 |
+| `GuideList.vue` | 攻略列表页，展示所有旅游攻略 |
+| `SiteLibrary.vue` | 第三方攻略库管理页，管理保存的小红书站点 |
+| `TripEditor.vue` | 小红书链接解析页，解析小红书笔记并保存到攻略库 |
+| `TripEdit.vue` | 行程编辑页，编辑行程信息和详细行程内容 |
+| `TripManagement.vue` | 行程管理页，管理所有行程（创建、查看、删除） |
+
+#### 路由配置（src/router/）
+
+| 文件 | 说明 |
+|------|------|
+| `index.js` | Vue Router配置，定义所有路由规则 |
+
+---
+
+### 后端文件（backend/）
+
+#### 核心文件
+
+| 文件 | 说明 |
+|------|------|
+| `server.js` | Express服务器主文件，包含所有API接口（小红书解析、站点库、行程管理等） |
+| `package.json` | 后端依赖配置（Express、Puppeteer、Supabase等） |
+
+#### 配置文件（config/）
+
+| 文件 | 说明 |
+|------|------|
+| `supabase.js` | Supabase数据库连接配置 |
+
+#### 数据库脚本（database/）
+
+| 文件 | 说明 |
+|------|------|
+| `init.sql` | 数据库初始化脚本（创建表结构） |
+| `sites.sql` | 站点表结构定义 |
+| `trips.sql` | 行程表和行程内容表结构定义 |
+
+#### 数据文件（data/）
+
+| 文件 | 说明 |
+|------|------|
+| `xhs_sites.json` | 小红书站点数据（Supabase未配置时使用） |
+| `trips.json` | 行程数据（Supabase未配置时使用） |
+| `trip_sites.json` | 行程-站点关联数据（Supabase未配置时使用） |
+| `trip_items.json` | 行程内容数据（Supabase未配置时使用） |
+
+---
+
+## 🗑️ 已删除的冗余文件
+
+以下文件已在清理过程中删除：
+
+### 临时报告文件（已删除）
+
+- `ACCEPTANCE_TEST_REPORT.md` - 验收测试报告
+- `FIX_REPORT.md` - 修复报告
+- `MAP_API_SETUP.md` - 地图API配置说明（功能已集成到README）
+- `MAP_FEATURE_TEST.md` - 地图功能测试报告
+- `PROJECT_STRUCTURE.md` - 项目结构文档（已重新生成）
+- `QUOTE_FIX_REPORT.md` - 引号修复报告
+- `REFACTOR_REPORT.md` - 重构报告
+- `SITE_LIBRARY_FIX_REPORT.md` - 站点库修复报告
+- `SITE_LIBRARY_TEST_REPORT.md` - 站点库测试报告
+- `TRIP_EDIT_FEATURE_SUMMARY.md` - 行程编辑功能总结
+- `TRIP_ITEMS_FIX_REPORT.md` - 行程内容修复报告
+- `XHS_CONTENT_EXTRACT_FIX.md` - 小红书内容提取修复
+- `XHS_CONTENT_FILTER_OPTIMIZATION.md` - 小红书内容过滤优化
+- `XHS_FIELD_FIX_SUMMARY.md` - 小红书字段修复总结
+- `XHS_IMAGE_FETCH_IMPLEMENTATION.md` - 小红书图片抓取实现
+- `XHS_PARSE_FILTER_FIX.md` - 小红书解析过滤修复
+- `XHS_PARSE_OPTIMIZATION.md` - 小红书解析优化
+- `XHS_PARSING_FIX_VERIFICATION.md` - 小红书解析修复验证
+- `XHS_ROLLBACK_SUMMARY.md` - 小红书回滚总结
+
+### 未使用的组件（已删除）
+
+- `frontend/src/components/MapViewer.vue` - 独立地图组件（功能已集成到行程编辑弹窗）
+
+---
+
+## ✅ 保留的核心文件
+
+### 文档文件
+
+- ✅ `README.md` - 项目主文档（保留）
+- ✅ `QUICKSTART.md` - 快速启动指南（保留）
+
+### 配置文件
+
+- ✅ `.gitignore` - Git忽略文件（前后端各一个）
+- ⚠️ `.env` - 环境变量文件（需要手动创建，参考README）
+
+---
+
+## 📋 环境变量配置
+
+### 前端环境变量（frontend/.env）
+
+```env
+# 高德地图API Key（地图选点功能需要）
+VITE_AMAP_API_KEY=你的高德地图API_Key
+
+# Google Maps API Key（可选）
+VITE_GOOGLE_API_KEY=你的Google_Maps_API_Key
 ```
-用户浏览器
-    ↓
-前端 (Vue3 + Vite) - http://localhost:3000
-    ↓ HTTP请求 (通过代理)
-后端 (Express) - http://localhost:3001
-    ↓ API调用
-Supabase (PostgreSQL数据库)
+
+### 后端环境变量（backend/.env）
+
+```env
+# Supabase配置（可选，未配置时使用JSON文件）
+SUPABASE_URL=你的Supabase项目URL
+SUPABASE_KEY=你的Supabase匿名密钥
+
+# 高德地图API Key（地理编码和路线规划需要）
+AMAP_API_KEY=你的高德地图API_Key
+
+# Google Maps API Key（可选）
+GOOGLE_API_KEY=你的Google_Maps_API_Key
 ```
 
-## 🛣️ 路由结构
+---
 
-### 前端路由
-- `/` - 首页（Home.vue）
-- `/guides` - 攻略列表页（GuideList.vue）
+## 🚀 项目启动验证
 
-### 后端API路由
-- `GET /api/health` - 健康检查
-- `GET /api/guides` - 获取所有攻略
-- `GET /api/guides/:id` - 获取单个攻略
-- `POST /api/guides` - 创建攻略
-- `PUT /api/guides/:id` - 更新攻略
-- `DELETE /api/guides/:id` - 删除攻略
+### 1. 检查文件完整性
 
-## 🗄️ 数据库结构
+确保以下核心文件存在：
+- ✅ `frontend/src/main.js`
+- ✅ `frontend/src/App.vue`
+- ✅ `frontend/src/router/index.js`
+- ✅ `backend/server.js`
+- ✅ `backend/config/supabase.js`
 
-### guides 表
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键，自动生成 |
-| title | VARCHAR(255) | 攻略标题 |
-| description | TEXT | 攻略描述 |
-| location | VARCHAR(255) | 地点 |
-| content | TEXT | 详细内容 |
-| created_at | TIMESTAMP | 创建时间 |
-| updated_at | TIMESTAMP | 更新时间 |
+### 2. 检查依赖安装
 
-## 🔧 配置文件说明
+```bash
+# 前端依赖
+cd frontend
+npm install
 
-### 前端配置
-- **vite.config.js**: 配置开发服务器端口(3000)和API代理
-- **tailwind.config.js**: 自定义Tailwind主题颜色
+# 后端依赖
+cd ../backend
+npm install
+```
 
-### 后端配置
-- **.env**: 包含Supabase连接信息（需要手动创建）
-- **server.js**: 配置Express中间件和路由
+### 3. 启动项目
 
-## 📦 依赖说明
+```bash
+# 启动后端（端口3008）
+cd backend
+npm run dev
 
-### 前端核心依赖
-- `vue`: Vue3框架
-- `vue-router`: 路由管理
-- `axios`: HTTP请求库
-- `tailwindcss`: CSS框架
+# 启动前端（端口5173）
+cd ../frontend
+npm run dev
+```
 
-### 后端核心依赖
-- `express`: Web框架
-- `@supabase/supabase-js`: Supabase客户端
-- `cors`: 跨域支持
-- `dotenv`: 环境变量管理
+### 4. 功能验证
 
-## 🚀 开发工作流
+- ✅ 首页正常显示
+- ✅ 攻略列表页正常加载
+- ✅ 第三方攻略库管理页正常显示
+- ✅ 小红书链接解析功能正常
+- ✅ 行程管理功能正常
+- ✅ 行程编辑功能正常（包括地图选点）
+- ✅ 地图选点功能正常
 
-1. **修改前端代码** → Vite自动热重载
-2. **修改后端代码** → Node.js watch模式自动重启
-3. **修改数据库** → 在Supabase Dashboard中操作
-4. **测试API** → 使用curl或Postman测试接口
+---
 
-## 📝 代码风格
+## 📝 注意事项
 
-- 所有代码使用中文注释
-- Vue组件使用Composition API
-- 后端使用ES6模块语法
-- API遵循RESTful规范
+1. **环境变量文件**：
+   - `.env` 文件需要手动创建（不在Git仓库中）
+   - 参考 `README.md` 中的配置说明
 
+2. **数据文件**：
+   - `backend/data/` 目录下的JSON文件会在首次使用时自动创建
+   - 如果配置了Supabase，数据会优先存储在Supabase中
+
+3. **组件使用**：
+   - `MapPicker.vue` 仅在行程编辑页使用
+   - 所有页面组件都在 `src/views/` 目录中
+
+4. **API接口**：
+   - 所有后端API接口都在 `backend/server.js` 中
+   - 接口路径统一以 `/api/` 开头
+
+---
+
+## 🔄 后续维护建议
+
+1. **文档更新**：
+   - 保持 `README.md` 和 `QUICKSTART.md` 的更新
+   - 重要功能变更时更新文档
+
+2. **代码规范**：
+   - 遵循Vue3 Composition API规范
+   - 保持代码注释清晰（中文注释）
+
+3. **文件管理**：
+   - 避免在根目录创建临时文件
+   - 临时测试文件及时清理
+
+4. **依赖管理**：
+   - 定期更新依赖包
+   - 注意安全漏洞修复
 
