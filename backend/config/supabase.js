@@ -1,20 +1,20 @@
-/**
- * Supabase连接配置示例文件
- * 
- * 使用说明：
- * 1. 复制此文件为 supabase.js
- * 2. 填入你的Supabase项目配置
- * 3. 在server.js中导入使用
- */
-
 import { createClient } from '@supabase/supabase-js'
+import dotenv from 'dotenv'
 
-// Supabase项目配置
-const supabaseUrl = 'https://sdsbpwskfxzlbtpvmnvd.supabase.co'
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNkc2Jwd3NrZnh6bGJ0cHZtbnZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxNjMzOTEsImV4cCI6MjA4MDczOTM5MX0._ZH9StyUrZN8IbJiJ1HC7I4gM1bZ-L4MXSNdcXrsSdY'
+// 加载环境变量（确保在创建客户端前执行）
+dotenv.config()
+
+// 从环境变量读取Supabase配置
+const supabaseUrl = process.env.SUPABASE_URL || 'your-supabase-url'
+const supabaseKey = process.env.SUPABASE_KEY || 'your-supabase-key'
 
 // 创建Supabase客户端实例
 export const supabase = createClient(supabaseUrl, supabaseKey)
+
+// 说明：此文件被后端服务直接导入
+/**
+ * 
+
 
 /**
  * 数据库表结构示例（在Supabase SQL编辑器中执行）：

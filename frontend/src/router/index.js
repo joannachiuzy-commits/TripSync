@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../views/Home.vue'
 import GuideList from '../views/GuideList.vue'
+import TripEditor from '../views/TripEditor.vue'
 
 // 定义路由配置
 const routes = [
@@ -13,6 +14,11 @@ const routes = [
     path: '/guides',
     name: 'GuideList',
     component: GuideList
+  },
+  {
+    path: '/editor',
+    name: 'TripEditor',
+    component: TripEditor
   }
 ]
 

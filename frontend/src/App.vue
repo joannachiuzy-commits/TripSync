@@ -22,6 +22,13 @@
             >
               攻略列表
             </router-link>
+            <router-link
+              to="/editor"
+              class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium"
+              active-class="text-primary-600"
+            >
+              行程编辑
+            </router-link>
           </div>
         </div>
       </div>
