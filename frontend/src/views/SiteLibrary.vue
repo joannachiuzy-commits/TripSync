@@ -48,68 +48,55 @@
         :key="site.id"
         class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
       >
-        <!-- 图片展示 -->
-        <div v-if="site.images && site.images.length > 0" class="h-48 bg-gray-100 flex items-center justify-center overflow-hidden">
-          <img
-            :src="site.images[0]"
-            :alt="site.site_name"
-            class="w-full h-full object-cover"
-            @error="handleImageError"
-          />
-        </div>
-        <div v-else class="h-48 bg-gray-100 flex items-center justify-center">
-          <span class="text-gray-400 text-4xl">📝</span>
-        </div>
-
-        <!-- 站点信息 -->
+        <!-- 【回滚】删除图片展示区域，保留列表式布局 -->
         <div class="p-6 space-y-3">
-          <div>
-            <h3 class="text-xl font-semibold text-gray-800 mb-1">{{ site.site_name }}</h3>
-            <a
-              :href="site.xhs_url"
-              target="_blank"
-              class="text-sm text-primary-600 hover:underline"
-            >
-              查看原链接 →
-            </a>
-          </div>
+            <div>
+              <h3 class="text-xl font-semibold text-gray-800 mb-1">{{ site.site_name }}</h3>
+              <a
+                :href="site.xhs_url"
+                target="_blank"
+                class="text-sm text-primary-600 hover:underline"
+              >
+                查看原链接 →
+              </a>
+            </div>
 
-          <!-- 标签 -->
-          <div v-if="site.tags && site.tags.length > 0" class="flex flex-wrap gap-2">
-            <span
-              v-for="tag in site.tags"
-              :key="tag"
-              class="px-2 py-1 bg-primary-50 text-primary-700 rounded text-xs"
-            >
-              {{ tag }}
-            </span>
-          </div>
+            <!-- 标签 -->
+            <div v-if="site.tags && site.tags.length > 0" class="flex flex-wrap gap-2">
+              <span
+                v-for="tag in site.tags"
+                :key="tag"
+                class="px-2 py-1 bg-primary-50 text-primary-700 rounded text-xs"
+              >
+                {{ tag }}
+              </span>
+            </div>
 
-          <!-- 内容预览 -->
-          <p v-if="site.content" class="text-sm text-gray-600 line-clamp-2">
-            {{ site.content }}
-          </p>
+            <!-- 内容预览 -->
+            <p v-if="site.content" class="text-sm text-gray-600 line-clamp-2">
+              {{ site.content }}
+            </p>
 
-          <!-- 备注 -->
-          <p v-if="site.notes" class="text-sm text-gray-500 italic">
-            备注：{{ site.notes }}
-          </p>
+            <!-- 备注 -->
+            <p v-if="site.notes" class="text-sm text-gray-500 italic">
+              备注：{{ site.notes }}
+            </p>
 
-          <!-- 操作按钮 -->
-          <div class="flex gap-2 pt-2 border-t">
-            <button
-              @click="editSite(site)"
-              class="flex-1 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 text-sm"
-            >
-              编辑
-            </button>
-            <button
-              @click="deleteSite(site.id)"
-              class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
-            >
-              删除
-            </button>
-          </div>
+            <!-- 操作按钮 -->
+            <div class="flex gap-2 pt-2 border-t">
+              <button
+                @click="editSite(site)"
+                class="flex-1 px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 text-sm"
+              >
+                编辑
+              </button>
+              <button
+                @click="deleteSite(site.id)"
+                class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
+              >
+                删除
+              </button>
+            </div>
         </div>
       </div>
     </div>
@@ -157,6 +144,9 @@
             />
             <p class="text-xs text-gray-500 mt-1">小红书原始链接</p>
           </div>
+
+          <!-- 【新增功能10】图片预览 -->
+          <!-- 【回滚】删除图片预览 -->
 
           <!-- 站点描述 -->
           <div>
@@ -387,10 +377,7 @@ const deleteSite = async (siteId) => {
   }
 }
 
-// 处理图片加载错误
-const handleImageError = (event) => {
-  event.target.style.display = 'none'
-}
+// 【回滚】删除图片相关函数
 
 // 组件挂载时获取站点列表
 onMounted(() => {

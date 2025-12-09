@@ -1,8 +1,6 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
-import axios from 'axios'
-import * as cheerio from 'cheerio'
 import puppeteer from 'puppeteer'
 import fs from 'fs'
 import path from 'path'
@@ -227,15 +225,26 @@ app.delete('/api/guides/:id', async (req, res) => {
 
 // ==================== 小红书链接解析接口 ====================
 
-// 伪装请求头，降低被反爬拦截的概率
+// 【优化1】强化请求头，模拟真实浏览器
 const XHS_HEADERS = {
   'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
   Accept:
-    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'zh-CN,zh;q=0.9',
-  Referer: 'https://www.xiaohongshu.com'
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  Referer: 'https://www.xiaohongshu.com/',
+  'Cache-Control': 'max-age=0',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'same-origin',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+  Cookie: '' // 可留空或加基础值
 }
+
+// 【优化2】移动端User-Agent（用于检测到登录提示时切换）
+const MOBILE_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
 
 // 从HTML中提取字段的辅助方法（正则兜底）
 const pickByRegex = (html = '', patterns = []) => {
@@ -252,13 +261,148 @@ const pickByRegex = (html = '', patterns = []) => {
  */
 const getRandomUserAgent = () => {
   const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
   ]
   return userAgents[Math.floor(Math.random() * userAgents.length)]
+}
+
+/**
+ * 【优化3】检测页面是否包含登录提示
+ * @param {string} htmlContent - HTML内容
+ * @returns {boolean} 是否包含登录提示
+ */
+const hasLoginPrompt = (htmlContent) => {
+  if (!htmlContent) return true
+  
+  const loginKeywords = [
+    '登录后推荐',
+    '登录查看更多',
+    '请先登录',
+    '登录后查看',
+    '立即登录',
+    '登录/注册',
+    '登录账号',
+    '登录小红书',
+    'login',
+    'sign in'
+  ]
+  
+  const lowerContent = htmlContent.toLowerCase()
+  return loginKeywords.some(keyword => lowerContent.includes(keyword.toLowerCase()))
+}
+
+/**
+ * 【优化9-修复】检测内容是否包含评论/推荐等无关信息（只检测明确的标识，不误过滤正文）
+ * @param {string} content - 内容文本
+ * @returns {boolean} 是否包含无关信息
+ */
+const hasUnrelatedContent = (content) => {
+  if (!content) return false
+  
+  const lowerContent = content.toLowerCase()
+  
+  // 【修复1】只检测明确的评论/推荐标识，不再笼统过滤
+  // 明确的评论/推荐标识模式（必须同时满足多个条件才判定为无关）
+  const explicitUnrelatedPatterns = [
+    /评论\s*\d+/,                 // "评论 123"（明确的评论数）
+    /点赞\s*\d+/,                 // "点赞 456"（明确的点赞数）
+    /收藏\s*\d+/,                 // "收藏 789"（明确的收藏数）
+    /分享\s*\d+/,                 // "分享 101"（明确的分享数）
+    /查看更多$/,                  // "查看更多"（行尾）
+    /相关推荐$/,                  // "相关推荐"（行尾）
+    /热门评论$/,                  // "热门评论"（行尾）
+    /推荐笔记$/,                  // "推荐笔记"（行尾）
+    /你可能还喜欢$/,              // "你可能还喜欢"（行尾）
+    /猜你喜欢$/,                  // "猜你喜欢"（行尾）
+    /大家都在搜$/,                // "大家都在搜"（行尾）
+    /热门话题$/,                  // "热门话题"（行尾）
+  ]
+  
+  // 【修复2】明确的无关关键词（必须是完整的短语，避免误判）
+  const explicitUnrelatedKeywords = [
+    '登录后推荐',
+    '登录查看更多',
+    '相关推荐',
+    '热门评论',
+    '推荐笔记',
+    '你可能还喜欢',
+    '猜你喜欢',
+    '大家都在搜',
+    '热门话题',
+    '查看更多',
+    '朱元璋告御状',              // 明确的无关内容
+    '水银体温计将禁产'            // 明确的无关内容
+  ]
+  
+  // 检查是否包含明确的无关关键词（完整匹配）
+  if (explicitUnrelatedKeywords.some(keyword => lowerContent.includes(keyword.toLowerCase()))) {
+    return true
+  }
+  
+  // 【修复3】检测明确的评论/推荐标识（如"11-30"、"942.8w"），但只在行首或独立行
+  // 如果内容很短（少于30字符），且匹配评论数格式（如"11-30"），可能是评论数
+  if (content.length < 30 && /^\d+-\d+$/.test(content.trim())) {
+    return true
+  }
+  
+  // 如果内容很短（少于30字符），且匹配浏览量格式（如"942.8w"），可能是浏览量
+  if (content.length < 30 && /^\d+\.\d+[wk]$/.test(content.trim())) {
+    return true
+  }
+  
+  // 检查是否匹配明确的无关模式（行尾匹配，避免误判正文中的词汇）
+  const patternMatches = explicitUnrelatedPatterns.filter(pattern => pattern.test(content))
+  if (patternMatches.length > 0) {
+    return true
+  }
+  
+  return false
+}
+
+/**
+ * 【优化10-修复】过滤内容中的评论/推荐等无关信息（只过滤明确的标识，保留正文）
+ * @param {string} content - 原始内容
+ * @returns {string} 过滤后的内容
+ */
+const filterUnrelatedContent = (content) => {
+  if (!content) return ''
+  
+  // 按行分割内容
+  const lines = content.split(/\n/)
+  const filteredLines = []
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    
+    // 跳过空行
+    if (!trimmedLine) continue
+    
+    // 【修复4】只跳过明确的评论/推荐行（使用修复后的检测函数）
+    if (hasUnrelatedContent(trimmedLine)) {
+      continue
+    }
+    
+    // 【修复5】只跳过明确的评论数格式（独立行，且长度很短）
+    // 如"11-30"这样的独立行才过滤，不过滤正文中的"11-30号"等
+    if (/^\d+-\d+$/.test(trimmedLine) && trimmedLine.length < 20) {
+      continue
+    }
+    
+    // 【修复6】只跳过明确的浏览量格式（独立行，且长度很短）
+    // 如"942.8w"这样的独立行才过滤，不过滤正文中的其他数字
+    if (/^\d+\.\d+[wk]$/.test(trimmedLine) && trimmedLine.length < 30) {
+      continue
+    }
+    
+    // 保留所有其他内容（包括包含特殊符号的正文）
+    filteredLines.push(trimmedLine)
+  }
+  
+  return filteredLines.join('\n').trim()
 }
 
 /**
@@ -359,7 +503,20 @@ const parseXhsPage = async (targetUrl) => {
       }
     })
 
-    // 步骤6: 【关键修改5】访问目标页面（60秒超时）
+    // 步骤6: 【优化4】访问目标页面（60秒超时），设置请求头
+    await page.setExtraHTTPHeaders({
+      'Referer': 'https://www.xiaohongshu.com/',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'max-age=0',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1'
+    })
+    
     await page.goto(targetUrl, {
       waitUntil: 'domcontentloaded', // DOM内容加载完成即可，比 networkidle0 快很多
       timeout: 60000 // 60秒超时
@@ -368,8 +525,43 @@ const parseXhsPage = async (targetUrl) => {
     // 步骤7: 【关键修改6】等待页面内容加载（使用 Promise，替代已废弃的 waitForTimeout）
     // 等待动态内容加载完成
     await new Promise(resolve => setTimeout(resolve, 3000))
+    
+    // 【优化5】检测页面是否包含登录提示
+    const pageContent = await page.content()
+    if (hasLoginPrompt(pageContent)) {
+      console.warn('⚠️ 检测到登录提示，尝试切换移动端UA重试...')
+      
+      // 关闭当前页面，重新创建
+      await page.close()
+      page = await browser.newPage()
+      
+      // 切换为移动端User-Agent
+      await page.setUserAgent(MOBILE_USER_AGENT)
+      await page.setExtraHTTPHeaders({
+        'Referer': 'https://www.xiaohongshu.com/',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br'
+      })
+      
+      // 重新访问页面
+      await page.goto(targetUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      })
+      
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      
+      // 再次检测
+      const retryContent = await page.content()
+      if (hasLoginPrompt(retryContent)) {
+        throw new Error('当前链接需要登录，无法解析，请尝试其他公开笔记链接')
+      }
+      
+      console.log('✅ 使用移动端UA成功绕过登录提示')
+    }
 
-    // 步骤7: 【修复2】提取页面文字信息（标题、描述、原始文本内容等）
+    // 步骤7: 【优化6】提取页面文字信息（标题、描述、原始文本内容等），优化选择器
     const pageData = await page.evaluate(() => {
       // 提取 og:title
       const ogTitleElement = document.querySelector('meta[property="og:title"]')
@@ -383,146 +575,167 @@ const parseXhsPage = async (targetUrl) => {
       const keywordsElement = document.querySelector('meta[name="keywords"]')
       const keywordsMeta = keywordsElement ? keywordsElement.getAttribute('content') : ''
       
-      // 【修复2-1】提取页面文本内容（用于匹配地址、人均等）
-      let textContent = ''
-      if (document.body) {
-        // 方法1: 使用 innerText（推荐，会忽略隐藏元素）
-        textContent = document.body.innerText || ''
-        // 方法2: 如果 innerText 为空，尝试 textContent
-        if (!textContent || textContent.trim().length < 10) {
-          textContent = document.body.textContent || ''
+      // 【优化6-1】尝试从笔记标题元素提取（适配最新页面结构）
+      let noteTitle = ''
+      const titleSelectors = [
+        '.note-title',
+        '[class*="title"]',
+        'h1',
+        'h2',
+        '.title',
+        '[data-v-] h1',
+        '[data-v-] h2'
+      ]
+      for (const selector of titleSelectors) {
+        const titleEl = document.querySelector(selector)
+        if (titleEl && titleEl.textContent && titleEl.textContent.trim().length > 0) {
+          noteTitle = titleEl.textContent.trim()
+          break
         }
-        // 方法3: 尝试从主要内容区域提取
-        const mainContent = document.querySelector('main') || 
-                           document.querySelector('.content') || 
-                           document.querySelector('#app') ||
-                           document.querySelector('.note-content') ||
-                           document.querySelector('[class*="content"]')
-        if (mainContent) {
-          const mainText = mainContent.innerText || mainContent.textContent || ''
-          if (mainText && mainText.length > textContent.length) {
-            textContent = mainText
+      }
+      
+      // 【简化字段】删除地址元素提取逻辑
+      
+      // 【修复content提取】简化内容提取逻辑，不进行任何过滤，直接提取完整文本
+      let textContent = ''
+      let rawContent = ''
+      
+      // 方法1: 尝试从笔记主体内容区域提取（不排除任何区域）
+      const noteContentSelectors = [
+        '.note-content',           // 小红书笔记正文类名
+        '.content',                 // 通用内容类名
+        '[class*="note-content"]', // 包含note-content的类名
+        '[class*="noteContent"]',  // 驼峰命名
+        'article',                  // article标签
+        '[class*="desc"]',          // 描述类名
+        '[class*="text"]',          // 文本类名
+        'main'                      // main标签
+      ]
+      
+      let noteMainContent = null
+      for (const selector of noteContentSelectors) {
+        const elements = document.querySelectorAll(selector)
+        for (const el of elements) {
+          if (el && el.textContent && el.textContent.trim().length > 20) {
+            noteMainContent = el
+            break
           }
         }
+        if (noteMainContent) break
       }
       
-      // 【修复2-2】提取原始摘要（笔记的完整文本内容）
-      let rawContent = ''
-      // 方法1: 优先使用描述
-      if (description && description.trim().length > 10) {
-        rawContent = description
-      }
-      // 方法2: 如果描述为空或太短，使用页面文本内容
-      if (!rawContent || rawContent.length < 50) {
-        // 尝试从笔记内容区域提取
-        const noteContent = document.querySelector('.note-content') ||
-                           document.querySelector('[class*="note"]') ||
-                           document.querySelector('[class*="content"]') ||
-                           document.querySelector('article') ||
-                           document.querySelector('.desc')
-        
-        if (noteContent) {
-          rawContent = noteContent.innerText || noteContent.textContent || ''
-        }
-        
-        // 如果还是为空，使用整个body的文本（但限制长度）
-        if (!rawContent || rawContent.length < 50) {
-          rawContent = textContent.substring(0, 2000) // 限制长度，避免太长
+      if (noteMainContent) {
+        // 优先使用笔记主体内容
+        textContent = noteMainContent.innerText || noteMainContent.textContent || ''
+        rawContent = textContent
+      } else {
+        // 方法2: 如果找不到笔记主体，尝试从body提取完整文本
+        if (document.body) {
+          textContent = document.body.innerText || document.body.textContent || ''
+          rawContent = textContent
         }
       }
       
-      // 如果都没有，至少返回标题
-      if (!rawContent && title) {
-        rawContent = title
+      // 方法3: 如果都没有，使用描述或标题
+      if (!rawContent || rawContent.length < 5) {
+        if (description && description.trim().length > 10) {
+          rawContent = description
+          textContent = description
+        } else if (title) {
+          rawContent = title
+          textContent = title
+        }
       }
       
       return {
-        title,
+        title: noteTitle || title, // 优先使用从元素提取的标题
         description,
         keywordsMeta,
         textContent: textContent || '',
-        rawContent: rawContent || '' // 新增：原始摘要内容
+        rawContent: rawContent || ''
       }
     })
 
-    // 调试日志：输出提取到的文本内容长度
-    console.log(`📝 提取到文本内容长度: ${pageData.textContent.length} 字符`)
+    // 【修复content提取】关闭所有内容过滤规则，直接返回完整的小红书页面文本
+    let filteredRawContent = pageData.rawContent || pageData.description || ''
+    let filteredTextContent = pageData.textContent || ''
+    
+    // 【排查1】确认是否成功获取到原始HTML
+    const rawHtml = await page.content()
+    console.log(`📄 原始HTML长度: ${rawHtml.length} 字符`)
+    console.log(`📄 原始HTML预览（前500字符）: ${rawHtml.substring(0, 500)}...`)
+    
+    // 【排查2】检查content字段的提取选择器是否错误
+    console.log(`📝 提取到文本内容长度: ${filteredTextContent.length} 字符`)
     console.log(`📝 标题: ${pageData.title}`)
     console.log(`📝 描述: ${pageData.description ? pageData.description.substring(0, 100) : '无'}...`)
-    console.log(`📝 原始摘要长度: ${pageData.rawContent ? pageData.rawContent.length : 0} 字符`)
-    console.log(`📝 原始摘要预览: ${pageData.rawContent ? pageData.rawContent.substring(0, 150) : '无'}...`)
-
-    // 步骤8: 提取图片链接（从页面中查找所有图片）
-    const images = await page.evaluate(() => {
-      const imageUrls = []
-      
-      // 方法1: 从 og:image meta 标签提取
-      const ogImageElement = document.querySelector('meta[property="og:image"]')
-      if (ogImageElement) {
-        const ogImageUrl = ogImageElement.getAttribute('content')
-        // 检查是否包含 sns-img-qc.xiaohongshu.com 域名
-        if (ogImageUrl && ogImageUrl.indexOf('sns-img-qc.xiaohongshu.com') !== -1) {
-          imageUrls.push(ogImageUrl)
-        }
+    console.log(`📝 rawContent长度: ${pageData.rawContent ? pageData.rawContent.length : 0} 字符`)
+    console.log(`📝 rawContent预览: ${pageData.rawContent ? pageData.rawContent.substring(0, 200) : '无'}...`)
+    
+    // 【修复1】关闭所有过滤规则，直接使用原始内容
+    // 如果rawContent为空，尝试使用textContent或description
+    if (!filteredRawContent || filteredRawContent.length < 5) {
+      filteredRawContent = pageData.rawContent || pageData.textContent || pageData.description || pageData.title || ''
+    }
+    
+    // 【排查3】如果仍然为空，尝试直接从body提取
+    if (!filteredRawContent || filteredRawContent.length < 5) {
+      const bodyContent = await page.evaluate(() => {
+        return document.body ? (document.body.innerText || document.body.textContent || '') : ''
+      })
+      if (bodyContent && bodyContent.length > 5) {
+        filteredRawContent = bodyContent
+        console.log(`✅ 从body直接提取到内容: ${bodyContent.length} 字符`)
       }
-      
-      // 方法2: 从所有 img 标签提取
-      const imgElements = document.querySelectorAll('img')
-      for (let i = 0; i < imgElements.length; i++) {
-        const img = imgElements[i]
-        // 优先取 data-src（懒加载），其次取 src
-        const imgSrc = img.getAttribute('data-src') || img.getAttribute('src')
-        // 检查是否包含 sns-img-qc.xiaohongshu.com 域名
-        if (imgSrc && imgSrc.indexOf('sns-img-qc.xiaohongshu.com') !== -1) {
-          imageUrls.push(imgSrc)
-        }
-      }
-      
-      return imageUrls
-    })
+    }
 
-    // 步骤9: 解析文字信息
-    // 解析名称：从标题中提取，去掉可能的后缀
+    // 【回滚】删除图片提取逻辑，只提取文本内容
+
+    // 步骤9: 【优化7】解析文字信息，优化提取逻辑，使用过滤后的内容
+    // 解析名称：优先使用从元素提取的标题，其次从meta标签提取
     let name = ''
-    if (pageData.title) {
+    if (pageData.title && pageData.title.trim().length > 0) {
       name = pageData.title.split('|')[0].split('-')[0].split('_')[0].trim()
+      // 清理可能的HTML标签
+      name = name.replace(/<[^>]*>/g, '').trim()
+      // 【优化15】验证名称是否包含无关信息
+      if (hasUnrelatedContent(name)) {
+        name = ''
+      }
     }
     // 如果标题为空，尝试从描述中提取
     if (!name && pageData.description) {
-      name = pageData.description.substring(0, 50).trim()
+      const descName = pageData.description.substring(0, 50).trim().split(/[，,。.\n]/)[0]
+      if (!hasUnrelatedContent(descName)) {
+        name = descName
+      }
     }
     
-    // 地址匹配：尝试多种格式
-    let address = pickByRegex(pageData.textContent, [
-      /地址[:：]\s*([^\n\r<]+)/i,
-      /位置[:：]\s*([^\n\r<]+)/i,
-      /地点[:：]\s*([^\n\r<]+)/i,
-      /📍\s*([^\n\r<]+)/i,
-      /地址[：:]\s*([^\n\r<]+)/i
-    ])
+    // 【简化字段】永久移除地址和人均字段的提取逻辑
+    // 不再提取address和average字段
     
-    // 如果从文本中没找到，尝试从描述中找
-    if (!address && pageData.description) {
-      address = pickByRegex(pageData.description, [
-        /地址[:：]\s*([^\n\r<]+)/i,
-        /位置[:：]\s*([^\n\r<]+)/i
-      ])
-    }
-
-    // 人均匹配：尝试多种格式
-    let average = pickByRegex(pageData.textContent, [
-      /人均[:：]\s*([0-9]+\.?[0-9]*\s*元?)/i,
-      /平均消费[:：]\s*([0-9]+\.?[0-9]*\s*元?)/i,
-      /💰\s*人均[:：]?\s*([0-9]+\.?[0-9]*\s*元?)/i,
-      /人均[：:]\s*([0-9]+\.?[0-9]*)/i
-    ])
+    // 【修复content提取】直接使用原始内容，不进行任何过滤
+    let finalContent = filteredRawContent || pageData.textContent || pageData.description || pageData.title || ''
     
-    // 如果从文本中没找到，尝试从描述中找
-    if (!average && pageData.description) {
-      average = pickByRegex(pageData.description, [
-        /人均[:：]\s*([0-9]+\.?[0-9]*\s*元?)/i,
-        /平均消费[:：]\s*([0-9]+\.?[0-9]*\s*元?)/i
-      ])
+    // 【排查4】如果content仍然为空，尝试多种方式提取
+    if (!finalContent || finalContent.length < 5) {
+      // 方法1: 尝试从body直接提取
+      const bodyContent = await page.evaluate(() => {
+        if (!document.body) return ''
+        // 尝试从main、article、.content等区域提取
+        const mainContent = document.querySelector('main') || 
+                          document.querySelector('article') || 
+                          document.querySelector('.content') ||
+                          document.querySelector('.note-content') ||
+                          document.querySelector('[class*="content"]') ||
+                          document.body
+        return mainContent ? (mainContent.innerText || mainContent.textContent || '') : ''
+      })
+      
+      if (bodyContent && bodyContent.length > 5) {
+        finalContent = bodyContent
+        console.log(`✅ 从body直接提取到内容: ${bodyContent.length} 字符`)
+      }
     }
 
     // 体验关键词：优先 keywords meta，其次拆分描述
@@ -540,46 +753,39 @@ const parseXhsPage = async (targetUrl) => {
     }
     
     // 调试日志：输出解析结果
-    console.log(`✅ 解析结果 - 名称: ${name || '未提取到'}`)
-    console.log(`✅ 解析结果 - 地址: ${address || '未提取到'}`)
-    console.log(`✅ 解析结果 - 人均: ${average || '未提取到'}`)
+    console.log(`✅ 解析结果 - 名称: ${name || '暂无法提取'}`)
     console.log(`✅ 解析结果 - 关键词数量: ${keywords.length}`)
+    console.log(`✅ 解析结果 - content长度: ${finalContent.length} 字符`)
+    console.log(`✅ 解析结果 - content预览: ${finalContent.substring(0, 200)}...`)
 
-    // 步骤10: 处理图片数组（去重、过滤、只取前3张）
-    const uniqueImages = []
-    const seenImages = new Set()
-    
-    for (let i = 0; i < images.length; i++) {
-      const imgUrl = images[i] ? images[i].trim() : ''
-      // 只保留包含 sns-img-qc.xiaohongshu.com 域名的图片，且去重
-      if (imgUrl && imgUrl.indexOf('sns-img-qc.xiaohongshu.com') !== -1 && !seenImages.has(imgUrl)) {
-        seenImages.add(imgUrl)
-        uniqueImages.push(imgUrl)
-        // 只取前3张
-        if (uniqueImages.length >= 3) {
-          break
-        }
-      }
-    }
+    // 【回滚】删除图片处理逻辑
 
-    console.log(`✅ 解析成功，提取到 ${uniqueImages.length} 张图片`)
-
-    // 步骤11: 关闭浏览器，释放资源
+    // 步骤10: 关闭浏览器，释放资源
     await browser.close()
     browser = null
 
-    // 步骤12: 【修复2-3】构建返回结果，确保所有字段都有值（包括原始摘要）
+    // 步骤11: 【简化字段】构建返回结果，仅保留名称、content、体验关键词
     const result = {
-      name: name || '',
-      address: address || '',
-      average: average || '',
+      name: name || '暂无法提取',
       keywords: keywords || [],
-      images: uniqueImages || [],
       raw: {
         title: pageData.title || '',
         description: pageData.description || '',
-        content: pageData.rawContent || pageData.description || pageData.textContent.substring(0, 500) || '' // 【修复2-4】原始摘要：优先使用rawContent，其次description，最后textContent
-      }
+        content: finalContent || '' // 【修复content提取】直接使用原始内容
+      },
+      // 【排查5】临时添加原始HTML预览（仅开发环境显示）
+      debug: process.env.NODE_ENV !== 'production' ? {
+        rawHtmlLength: rawHtml.length,
+        rawHtmlPreview: rawHtml.substring(0, 1000), // 前1000字符
+        textContentLength: filteredTextContent.length,
+        rawContentLength: pageData.rawContent ? pageData.rawContent.length : 0
+      } : undefined
+    }
+    
+    // 【修复content提取】如果content为空，显示明确提示
+    if (!result.raw.content || result.raw.content.length < 5) {
+      console.warn('⚠️ 无法提取笔记内容')
+      result.raw.content = '暂无法获取笔记内容'
     }
 
     // 调试日志：输出最终返回的数据结构
@@ -604,7 +810,7 @@ const parseXhsPage = async (targetUrl) => {
 /**
  * POST /api/xhs/parse
  * 请求体: { url: 'https://www.xiaohongshu.com/explore/xxxx' }
- * 返回: { name, address, average, keywords, images }
+ * 返回: { name, keywords, raw: { title, description, content }, debug: { rawHtmlPreview, ... } }
  * 
  * 使用 Puppeteer 无头浏览器解析小红书页面，支持动态加载的内容
  * 包含重试机制：超时后自动重试1次
@@ -986,12 +1192,14 @@ const deleteTripItemsFromFile = (tripId) => {
 // 保存站点到数据库 (POST /api/xhs/sites)
 app.post('/api/xhs/sites', async (req, res) => {
   try {
-    const { site_name, xhs_url, content, images, tags, notes } = req.body
+    const { site_name, xhs_url, content, tags, notes } = req.body
 
     // 验证必填字段
     if (!site_name || !xhs_url) {
       return res.status(400).json({ error: '站点名称和小红书链接为必填项' })
     }
+
+    // 【回滚】删除图片相关逻辑
 
     // 【修复9】检查Supabase是否配置且可用，如果未配置则使用JSON文件存储
     if (isSupabaseConfigured() && supabase) {
@@ -1004,7 +1212,6 @@ app.post('/api/xhs/sites', async (req, res) => {
               site_name,
               xhs_url,
               content: content || '',
-              images: images || [],
               tags: tags || [],
               notes: notes || ''
             }
@@ -1029,7 +1236,6 @@ app.post('/api/xhs/sites', async (req, res) => {
       site_name,
       xhs_url,
       content: content || '',
-      images: images || [],
       tags: tags || [],
       notes: notes || ''
     }
@@ -1148,6 +1354,8 @@ app.get('/api/xhs/sites/:id', async (req, res) => {
       })
     }
 
+    // 【回滚】删除imageUrl兼容性处理
+
     // 统一返回格式
     return res.json({
       code: 200,
@@ -1169,13 +1377,13 @@ app.get('/api/xhs/sites/:id', async (req, res) => {
 app.put('/api/xhs/sites/:id', async (req, res) => {
   try {
     const { id } = req.params
-    const { site_name, content, images, tags, notes, xhs_url } = req.body
+    const { site_name, content, tags, notes, xhs_url } = req.body
 
     // 构建更新对象
     const updates = {}
     if (site_name !== undefined) updates.site_name = site_name
     if (content !== undefined) updates.content = content
-    if (images !== undefined) updates.images = images
+    // 【回滚】删除images字段更新
     if (tags !== undefined) updates.tags = tags
     if (notes !== undefined) updates.notes = notes
     if (xhs_url !== undefined) updates.xhs_url = xhs_url

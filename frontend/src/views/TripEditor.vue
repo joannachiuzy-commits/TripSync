@@ -44,21 +44,10 @@
       </div>
 
       <div v-if="result" class="space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p class="text-sm text-gray-500 mb-1">名称</p>
-            <p class="text-lg font-semibold text-gray-800">{{ result.name || '未提取到' }}</p>
-          </div>
-          <div>
-            <p class="text-sm text-gray-500 mb-1">人均</p>
-            <p class="text-lg font-semibold text-gray-800">{{ result.average || '未提取到' }}</p>
-          </div>
-          <div class="md:col-span-2">
-            <p class="text-sm text-gray-500 mb-1">地址</p>
-            <p class="text-lg font-semibold text-gray-800 break-all">
-              {{ result.address || '未提取到' }}
-            </p>
-          </div>
+        <!-- 【简化字段】仅显示名称、content、体验关键词 -->
+        <div>
+          <p class="text-sm text-gray-500 mb-1">名称</p>
+          <p class="text-lg font-semibold text-gray-800">{{ result.name || '暂无法提取' }}</p>
         </div>
 
         <div>
@@ -71,29 +60,26 @@
             >
               {{ tag }}
             </span>
-            <span v-if="!result.keywords?.length" class="text-gray-500 text-sm">未提取到</span>
+            <span v-if="!result.keywords?.length" class="text-gray-500 text-sm">暂无法提取</span>
           </div>
         </div>
 
-        <!-- 笔记图片展示 -->
-        <div v-if="result.images && Array.isArray(result.images) && result.images.length > 0">
-          <p class="text-sm text-gray-500 mb-2">笔记图片：</p>
-          <div class="flex gap-2">
-            <img
-              v-for="(imgUrl, idx) in result.images.slice(0, 3)"
-              :key="idx"
-              :src="imgUrl"
-              :alt="`笔记图片 ${idx + 1}`"
-              class="w-[100px] h-[100px] object-cover rounded-lg border border-gray-200"
-              @error="handleImageError"
-              loading="lazy"
-            />
-          </div>
-        </div>
-
+        <!-- 【修复content提取】显示笔记正文 -->
         <div class="bg-gray-50 rounded-md p-3 text-sm text-gray-600">
-          <p class="font-medium text-gray-700">原始摘要</p>
-          <p class="mt-1 whitespace-pre-line">{{ result.raw?.content || result.raw?.description || result.raw?.title || '未提取到' }}</p>
+          <p class="font-medium text-gray-700 mb-2">笔记正文</p>
+          <p class="mt-1 whitespace-pre-line">{{ result.raw?.content || '暂无法获取笔记内容' }}</p>
+        </div>
+
+        <!-- 【排查6】临时添加原始HTML预览（仅开发环境显示） -->
+        <div v-if="result.debug" class="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-xs text-gray-600">
+          <p class="font-medium text-yellow-800 mb-2">🔍 调试信息（仅开发环境）</p>
+          <p class="mb-1">原始HTML长度: {{ result.debug.rawHtmlLength }} 字符</p>
+          <p class="mb-1">文本内容长度: {{ result.debug.textContentLength }} 字符</p>
+          <p class="mb-1">rawContent长度: {{ result.debug.rawContentLength }} 字符</p>
+          <details class="mt-2">
+            <summary class="cursor-pointer text-yellow-700 hover:text-yellow-900">查看原始HTML预览（前1000字符）</summary>
+            <pre class="mt-2 p-2 bg-white rounded border border-yellow-300 overflow-auto max-h-40 text-xs">{{ result.debug.rawHtmlPreview }}</pre>
+          </details>
         </div>
 
         <!-- 保存到第三方攻略库按钮 -->
@@ -160,12 +146,7 @@ const handlePaste = (event) => {
   }
 }
 
-// 处理图片加载错误
-const handleImageError = (event) => {
-  // 图片加载失败时，隐藏该图片或显示占位图
-  event.target.style.display = 'none'
-  console.warn('图片加载失败:', event.target.src)
-}
+// 【回滚】删除图片错误处理函数
 
 // 解析链接，调用后端接口
 const parseLink = async () => {
@@ -205,12 +186,11 @@ const saveToSiteLibrary = async () => {
   saveSuccess.value = false
   
   try {
-    // 构建保存数据（【修复3】确保所有字段都正确传递）
+    // 构建保存数据（【回滚】删除图片相关字段）
     const siteData = {
       site_name: result.value.name || '未命名站点',
       xhs_url: xhsUrl.value.trim(),
-      content: result.value.raw?.content || result.value.raw?.description || result.value.raw?.title || '', // 【修复3-1】优先使用content字段
-      images: result.value.images || [],
+      content: result.value.raw?.content || result.value.raw?.description || result.value.raw?.title || '', // 【修复字段混淆】优先使用content字段（已移除address）
       tags: result.value.keywords || [],
       notes: ''
     }
