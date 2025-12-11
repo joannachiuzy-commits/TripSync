@@ -12,18 +12,21 @@ CREATE TABLE IF NOT EXISTS trips (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 【新增1】创建行程内容表（手动录入的行程项）
+-- 【重构】创建行程内容表（单日多平级站点）
 CREATE TABLE IF NOT EXISTS trip_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  date DATE NOT NULL COMMENT '日期（单日行程的日期）',
+  theme VARCHAR(255) COMMENT '行程主题（选填）',
   place_name VARCHAR(255) NOT NULL COMMENT '地点名称',
   address TEXT COMMENT '地址',
   description TEXT COMMENT '描述',
   duration VARCHAR(50) COMMENT '耗时，如"2小时"',
   budget VARCHAR(50) COMMENT '预算，如"100元"',
   notes TEXT COMMENT '备注',
-  day_number INTEGER NOT NULL DEFAULT 1 COMMENT '天数，如1表示Day1',
-  sort_order INTEGER NOT NULL DEFAULT 0 COMMENT '排序，数字越小越靠前',
+  lat DECIMAL(10, 8) COMMENT '纬度',
+  lng DECIMAL(11, 8) COMMENT '经度',
+  sort_order INTEGER NOT NULL DEFAULT 0 COMMENT '排序，数字越小越靠前（同一日期的站点排序）',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

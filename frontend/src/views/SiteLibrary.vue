@@ -123,12 +123,34 @@
         <h2 class="text-2xl font-bold text-gray-800 mb-4">编辑站点</h2>
 
         <div class="space-y-4">
-          <!-- 站点名称 -->
+          <!-- 【新增】站点名称 + 地图查地址按钮 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">站点名称 *</label>
+            <div class="flex gap-2">
+              <input
+                v-model="editForm.site_name"
+                type="text"
+                placeholder="例如：乐天水族馆"
+                class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
+              />
+              <button
+                @click="openMapSearch"
+                type="button"
+                :disabled="!editForm.site_name"
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm"
+              >
+                🗺️ 地图查地址
+              </button>
+            </div>
+          </div>
+
+          <!-- 【新增】地址输入框 -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">地址</label>
             <input
-              v-model="editForm.site_name"
+              v-model="editForm.address"
               type="text"
+              placeholder="例如：东京都港区芝公园4-2-8（可点击'地图查地址'自动填充）"
               class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
             />
           </div>
@@ -200,12 +222,22 @@
         </div>
       </div>
     </div>
+
+    <!-- 【新增】地图选点弹窗（复用行程模块的MapPicker组件） -->
+    <MapPicker
+      v-if="showMapPicker"
+      :show="showMapPicker"
+      :search-keyword="mapSearchKeyword"
+      @close="showMapPicker = false"
+      @confirm="handleMapPickerConfirm"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import MapPicker from '@/components/MapPicker.vue'
 
 // 站点列表
 const sites = ref([])
@@ -227,8 +259,15 @@ const editForm = ref({
   xhs_url: '',
   content: '',
   tagsText: '',
-  notes: ''
+  notes: '',
+  address: '',
+  lat: null,
+  lng: null
 })
+
+// 【新增】地图选点相关状态
+const showMapPicker = ref(false)
+const mapSearchKeyword = ref('')
 
 // 所有标签（用于筛选）
 const allTags = computed(() => {
@@ -289,7 +328,10 @@ const editSite = (site) => {
     xhs_url: site.xhs_url || '',
     content: site.content || '',
     tagsText: site.tags ? site.tags.join(',') : '',
-    notes: site.notes || ''
+    notes: site.notes || '',
+    address: site.address || '',
+    lat: site.lat || null,
+    lng: site.lng || null
   }
 }
 
@@ -314,7 +356,10 @@ const saveEdit = async () => {
       xhs_url: editForm.value.xhs_url || editingSite.value.xhs_url || '',
       content: editForm.value.content || editingSite.value.content || '',
       tags: tags,
-      notes: editForm.value.notes || ''
+      notes: editForm.value.notes || '',
+      address: editForm.value.address || null,
+      lat: editForm.value.lat || null,
+      lng: editForm.value.lng || null
     }, {
       timeout: 10000
     })
@@ -349,10 +394,33 @@ const closeEditModal = () => {
     xhs_url: '',
     content: '',
     tagsText: '',
-    notes: ''
+    notes: '',
+    address: '',
+    lat: null,
+    lng: null
   }
   error.value = '' // 清空错误信息
   successMessage.value = '' // 清空成功信息
+}
+
+// 【新增】打开地图查地址（自动搜索地点）
+const openMapSearch = () => {
+  const keyword = editForm.value.site_name?.trim()
+  if (!keyword) {
+    error.value = '请先输入站点名称'
+    return
+  }
+  mapSearchKeyword.value = keyword
+  showMapPicker.value = true
+}
+
+// 【新增】地图选点确认（自动填充地址）
+const handleMapPickerConfirm = (location) => {
+  editForm.value.address = location.address || ''
+  editForm.value.lat = location.lat
+  editForm.value.lng = location.lng
+  showMapPicker.value = false
+  mapSearchKeyword.value = ''
 }
 
 // 删除站点

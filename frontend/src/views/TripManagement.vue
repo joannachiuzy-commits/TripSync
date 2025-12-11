@@ -144,7 +144,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+// 【优化】使用统一的请求工具和配置
+import { get, post, del } from '../utils/request.js'
+import { API_TIMEOUT } from '../config/index.js'
+import { validateTripInfo } from '../utils/validators.js'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -170,57 +173,54 @@ const fetchTrips = async () => {
   error.value = ''
   
   try {
-    // 【统一修复1】获取行程列表 - 添加超时和统一错误处理
-    const response = await axios.get('http://localhost:3008/api/trips', {
-      timeout: 10000
-    })
+    // 【优化】使用统一的请求工具
+    const response = await get('/api/trips', {}, { timeout: API_TIMEOUT.default })
     
-    // 【统一修复2】适配后端统一返回格式：{ code: 200, data: [...], msg: "成功" }
-    if (response.data && response.data.code === 200) {
-      trips.value = response.data.data || []
+    // 【优化】统一返回格式：{ code: 200, data: [...], msg: "成功" }
+    if (response.code === 200) {
+      trips.value = response.data || []
     } else {
       // 兼容旧格式（直接返回数组）
-      trips.value = Array.isArray(response.data) ? response.data : []
+      trips.value = Array.isArray(response) ? response : []
     }
   } catch (err) {
     console.error('获取行程列表失败', err)
-    if (err.response) {
-      error.value = `获取行程列表失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
-    } else if (err.request) {
-      error.value = '获取行程列表失败：无法连接到后端服务（请确保后端服务在3008端口运行）'
-    } else {
-      error.value = `获取行程列表失败: ${err.message || '未知错误'}`
-    }
+    // 【优化】统一错误处理（request.js已处理，这里只需要设置错误消息）
+    error.value = `获取行程列表失败: ${err.message || '未知错误'}`
     trips.value = []
   } finally {
     loading.value = false
   }
 }
 
-// 创建行程
+// 【优化】创建行程（使用统一的验证函数和请求工具）
 const createTrip = async () => {
-  if (!newTrip.value.trip_name) return
+  // 【优化】使用统一的验证函数
+  const validation = validateTripInfo(newTrip.value)
+  if (!validation.valid) {
+    error.value = validation.error
+    return
+  }
   
   creating.value = true
   
   try {
-    // 【统一修复2】创建行程 - 添加超时和统一错误处理
-    const { data } = await axios.post('http://localhost:3008/api/trips', newTrip.value, {
-      timeout: 10000
+    // 【优化】使用统一的请求工具
+    const response = await post('/api/trips', newTrip.value, {
+      timeout: API_TIMEOUT.default
     })
+    
+    // 统一返回格式：{ code: 200, data: {...}, msg: "成功" }
+    const tripData = response.code === 200 ? response.data : response
+    
     closeCreateModal()
     fetchTrips()
     // 跳转到编辑页面
-    router.push(`/trips/${data.id}/edit`)
+    router.push(`/trips/${tripData.id}/edit`)
   } catch (err) {
     console.error('创建行程失败', err)
-    if (err.response) {
-      error.value = `创建行程失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
-    } else if (err.request) {
-      error.value = '创建行程失败：无法连接到后端服务'
-    } else {
-      error.value = `创建行程失败: ${err.message || '未知错误'}`
-    }
+    // 【优化】统一错误处理（request.js已处理，这里只需要设置错误消息）
+    error.value = `创建行程失败: ${err.message || '未知错误'}`
   } finally {
     creating.value = false
   }
@@ -231,20 +231,15 @@ const deleteTrip = async (tripId) => {
   if (!confirm('确定要删除这个行程吗？删除后关联的站点也会被移除。')) return
   
   try {
-    // 【统一修复3】删除行程 - 添加超时和统一错误处理
-    await axios.delete(`http://localhost:3008/api/trips/${tripId}`, {
-      timeout: 10000
+    // 【优化】使用统一的请求工具
+    await del(`/api/trips/${tripId}`, {
+      timeout: API_TIMEOUT.default
     })
     fetchTrips()
   } catch (err) {
     console.error('删除行程失败', err)
-    if (err.response) {
-      error.value = `删除行程失败: ${err.response.data?.error || err.response.statusText || '服务器错误'}`
-    } else if (err.request) {
-      error.value = '删除行程失败：无法连接到后端服务'
-    } else {
-      error.value = `删除行程失败: ${err.message || '未知错误'}`
-    }
+    // 【优化】统一错误处理（request.js已处理，这里只需要设置错误消息）
+    error.value = `删除行程失败: ${err.message || '未知错误'}`
   }
 }
 
