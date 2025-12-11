@@ -240,8 +240,10 @@
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">地点名称 *</label>
               <div class="flex gap-2">
+                <!-- 【修复】添加动态 ref 绑定，确保每个输入框的实时值可通过索引获取 -->
                 <input
                   v-model="site.place_name"
+                  :ref="(el) => placeInputs[index] = el"
                   type="text"
                   placeholder="例如：乐天水族馆"
                   class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:outline-none"
@@ -373,6 +375,9 @@ const dayForm = ref({
 const showMapPicker = ref(false)
 const currentMapPickerIndex = ref(-1) // 当前正在选点的站点索引
 const mapSearchKeyword = ref('') // 【新增】地图搜索关键词
+
+// 【修复】用于存储每个地点输入框的实时 DOM 引用，确保获取输入框的实时值（而非响应式缓存值）
+const placeInputs = ref([])
 
 // 大众点评查询相关
 const loadingDianping = ref(-1) // 【新增】正在查询的站点索引（-1表示无查询）
@@ -567,42 +572,87 @@ const removeSiteRow = (index) => {
 }
 
 // 【修复】打开地图查地址（自动搜索地点）- 确保地点名称正确传递
-const openMapSearch = (index) => {
-  // 【修复】强制读取输入框的最新值（而非缓存值）
-  const keyword = dayForm.value.items[index].place_name?.trim()
-  if (!keyword) {
-    error.value = '请先输入地点名称'
+const openMapSearch = async (index) => {
+  // 【修复】清空旧关键词残留，避免重复搜索旧关键词
+  mapSearchKeyword.value = ''
+  
+  // 【修复】通过输入框的 ref 获取实时值（而非依赖响应式缓存值），确保获取到用户最新输入的内容
+  const inputElement = placeInputs.value[index]
+  const rawValue = inputElement?.value || dayForm.value.items[index]?.place_name || ''
+  
+  // 【修复】强化关键词读取与验证：修剪空格并校验
+  const trimmedKeyword = rawValue.trim()
+  
+  // 【修复】打印"关键词读取与传递"全链路日志
+  console.log('📤 读取输入框实时值:', rawValue, '修剪后关键词:', trimmedKeyword)
+  
+  // 【修复】新增关键词有效性校验：若修剪后为空，弹窗提示并终止流程
+  if (!trimmedKeyword) {
+    error.value = '请输入有效地点名称（不可为空格）'
+    console.warn('⚠️ [openMapSearch] 关键词为空，终止流程')
     return
   }
   
-  console.log('📍 [openMapSearch] 打开地图查地址，地点名称:', keyword, '索引:', index)
+  // 【修复】新增关键词长度校验：至少2个字符
+  if (trimmedKeyword.length < 2) {
+    error.value = '请输入至少 2 个字符的地点名称'
+    console.warn('⚠️ [openMapSearch] 关键词过短:', trimmedKeyword.length, '个字符，终止流程')
+    return
+  }
+  
+  console.log('📍 [openMapSearch] 打开地图查地址，地点名称:', trimmedKeyword, '索引:', index)
   
   // 【修复】先设置搜索关键词，确保在打开弹窗前已更新
   currentMapPickerIndex.value = index
-  mapSearchKeyword.value = keyword
   
-  // 【修复】使用nextTick确保响应式更新完成后再打开弹窗
-  nextTick(() => {
-    console.log('📍 [openMapSearch] 搜索关键词已设置:', mapSearchKeyword.value)
-    showMapPicker.value = true
-  })
+  // 【修复】确保 mapSearchKeyword 响应式更新完成后再打开弹窗：使用双重 nextTick
+  await nextTick()
+  mapSearchKeyword.value = trimmedKeyword
+  // 【修复】打印传递给MapPicker的关键词
+  console.log('📤 传递给MapPicker的关键词:', mapSearchKeyword.value)
+  
+  await nextTick() // 确保MapPicker已接收最新props
+  
+  // 【修复】打开弹窗
+  showMapPicker.value = true
+  
+  // 【修复】打开弹窗后，新增 100ms 兜底延迟（仅用于日志验证）
+  setTimeout(() => {
+    console.log('📤 弹窗打开后，MapPicker接收的关键词:', mapSearchKeyword.value)
+  }, 100)
 }
 
 // 【新增】查询大众点评信息
 const searchDianpingInfo = async (index) => {
-  const keyword = dayForm.value.items[index].place_name?.trim()
-  if (!keyword) {
-    error.value = '请先输入地点名称'
+  // 【修复】通过输入框的 ref 获取实时值（与 openMapSearch 保持一致）
+  const inputElement = placeInputs.value[index]
+  const rawValue = inputElement?.value || dayForm.value.items[index]?.place_name || ''
+  
+  // 【修复】强化关键词读取与验证：修剪空格并校验（与 openMapSearch 保持一致）
+  const trimmedKeyword = rawValue.trim()
+  
+  // 【修复】新增关键词有效性校验：若修剪后为空，弹窗提示并终止流程
+  if (!trimmedKeyword) {
+    error.value = '请输入有效地点名称（不可为空格）'
     return
   }
+  
+  // 【修复】新增关键词长度校验：至少2个字符
+  if (trimmedKeyword.length < 2) {
+    error.value = '请输入至少 2 个字符的地点名称'
+    return
+  }
+  
+  const keyword = trimmedKeyword
   
   loadingDianping.value = index
   
   try {
-    const response = await axios.post('http://localhost:3008/api/dianping/search', {
+    // 【优化】使用统一的请求工具
+    const response = await post('/api/dianping/search', {
       keyword
     }, {
-      timeout: 10000
+      timeout: API_TIMEOUT.dianping || API_TIMEOUT.default
     })
     
     // 【优化】统一返回格式：{ code: 200, data: {...}, msg: "成功" }
