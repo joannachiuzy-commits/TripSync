@@ -338,6 +338,7 @@
       :search-keyword="mapSearchKeyword"
       @close="showMapPicker = false"
       @confirm="handleMapPickerConfirm"
+      @select-address="handleAddressSelect"
     />
   </div>
 </template>
@@ -690,6 +691,33 @@ const handleMapPickerConfirm = (location) => {
   showMapPicker.value = false
   currentMapPickerIndex.value = -1
   mapSearchKeyword.value = ''
+}
+
+// 【新增】处理地图选点后的地址选择事件
+// 当用户在地图上点击选点并确认填充时，将地址自动填入行程表单的"地址"输入框
+const handleAddressSelect = (addressData) => {
+  console.log('📥 [handleAddressSelect] 接收到选点地址:', addressData)
+  
+  // 确保有有效的站点索引
+  if (currentMapPickerIndex.value >= 0 && currentMapPickerIndex.value < dayForm.value.items.length) {
+    // 将解析后的formattedAddress赋值给行程表单的"地址"输入框（v-model变量）
+    dayForm.value.items[currentMapPickerIndex.value].address = addressData.formattedAddress || addressData.address || ''
+    
+    // 同时保存经纬度信息（可选，用于后续定位）
+    if (addressData.lng !== undefined) {
+      dayForm.value.items[currentMapPickerIndex.value].lng = addressData.lng
+    }
+    if (addressData.lat !== undefined) {
+      dayForm.value.items[currentMapPickerIndex.value].lat = addressData.lat
+    }
+    
+    console.log('✅ [handleAddressSelect] 地址已填充到表单:', addressData.formattedAddress || addressData.address)
+    console.log('📍 [handleAddressSelect] 坐标已保存:', addressData.lng, addressData.lat)
+  } else {
+    console.warn('⚠️ [handleAddressSelect] 无效的站点索引，无法填充地址')
+  }
+  
+  // 注意：不关闭地图弹窗，保留标记点方便用户核对，用户可继续选点或手动关闭
 }
 
 // 【优化】保存单日行程（使用统一的验证函数和请求工具）

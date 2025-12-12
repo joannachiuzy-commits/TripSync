@@ -106,6 +106,40 @@
         <div class="absolute top-4 left-4 bg-white px-3 py-2 rounded shadow-md text-sm z-10">
           <p class="text-gray-700">点击地图选择地点</p>
         </div>
+        
+        <!-- 【重构】地址确认弹窗（固定在地图容器下方，默认显示，包含默认地址+确认按钮） -->
+        <div
+          v-show="showAddressConfirmDialog"
+          class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-white rounded-lg shadow-xl p-4 z-30 min-w-[300px] max-w-[500px] border border-gray-200"
+        >
+          <div class="space-y-3">
+            <div>
+              <h4 class="text-sm font-semibold text-gray-800 mb-2">确认地址</h4>
+              <!-- 【重构】地址展示区：显示默认地址或用户选点后的地址 -->
+              <div class="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-200 min-h-[60px] flex items-center">
+                <span v-if="clickedAddress">{{ clickedAddress }}</span>
+                <span v-else-if="props.defaultAddress">{{ props.defaultAddress }}</span>
+                <span v-else class="text-gray-400">暂无地址（可点击地图选点或使用默认地址）</span>
+              </div>
+            </div>
+            <!-- 【重构】确认填充按钮：无论是否修改地址，点击后均触发地址传递 -->
+            <div class="flex gap-2">
+              <button
+                @click="confirmAddressFill"
+                class="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+              >
+                确认填充
+              </button>
+              <button
+                v-if="clickedAddress"
+                @click="cancelAddressSelection"
+                class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 text-sm font-medium"
+              >
+                清除选点
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 底部信息栏 -->
@@ -147,6 +181,23 @@ import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 // 【优化】使用统一的请求工具和配置
 import { get, post } from '../utils/request.js'
 import { API_BASE_URL, API_TIMEOUT } from '../config/index.js'
+
+// ========== 高德安全密钥配置 ==========
+// 在加载高德JSAPI之前，必须先配置安全密钥
+// 读取.env中的VITE_AMAP_SECURITY_CODE环境变量
+const securityCode = import.meta.env.VITE_AMAP_SECURITY_CODE
+
+if (securityCode && securityCode.trim()) {
+  // 挂载全局配置（必须在加载高德API之前执行）
+  window._AMapSecurityConfig = {
+    securityJsCode: securityCode.trim()
+  }
+  console.log('✅ [高德安全密钥] 配置成功')
+} else {
+  // 若VITE_AMAP_SECURITY_CODE不存在，打印警告
+  console.warn('⚠️ [高德安全密钥] 请在.env中配置VITE_AMAP_SECURITY_CODE')
+}
+
 import { checkMapContainer, fetchAmapApiKey, loadAmapApiScript, clearMapInstance } from '../utils/mapHelpers.js'
 
 const props = defineProps({
@@ -157,10 +208,49 @@ const props = defineProps({
   searchKeyword: {
     type: String,
     default: ''
+  },
+  // 【新增】默认地址（从父组件传入，用于地址确认弹窗的默认显示）
+  defaultAddress: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['close', 'confirm'])
+/**
+ * 事件定义
+ * 
+ * @event close - 关闭地图弹窗
+ * @event confirm - 确认选择位置（底部确认按钮）
+ * @event select-address - 选点后确认填充地址（传递formattedAddress给父组件）
+ * 
+ * select-address 事件参数格式：
+ * {
+ *   formattedAddress: string, // 详细地址（formattedAddress，主要字段）
+ *   address: string,           // 兼容字段（同formattedAddress）
+ *   lng: number,               // 经度
+ *   lat: number                // 纬度
+ * }
+ * 
+ * 父组件使用说明：
+ * 1. 在MapPicker组件上监听@select-address事件
+ * 2. 在事件处理函数中，将接收到的formattedAddress赋值给行程表单的"地址"输入框的v-model变量
+ * 
+ * 使用示例：
+ * <MapPicker
+ *   :show="showMapPicker"
+ *   :search-keyword="keyword"
+ *   @select-address="handleAddressSelect"
+ * />
+ * 
+ * const handleAddressSelect = (addressData) => {
+ *   // 将formattedAddress赋值给表单的地址输入框（v-model变量）
+ *   formData.address = addressData.formattedAddress
+ *   // 可选：同时保存经纬度
+ *   formData.lng = addressData.lng
+ *   formData.lat = addressData.lat
+ * }
+ */
+const emit = defineEmits(['close', 'confirm', 'select-address'])
 
 // 【优化】从后端动态获取地图Keys（使用统一的请求工具）
 const fetchMapKeys = async () => {
@@ -196,10 +286,17 @@ const mapType = ref('amap')
 
 // 地图相关
 let mapInstance = null
-let marker = null
+let marker = null // 搜索定位标记
+let clickMarker = null // 【新增】选点标记（用于区分选点和搜索标记）
 let googleMapInstance = null
 let googleMarker = null
 const selectedLocation = ref(null)
+
+// 【新增】选点相关状态
+// 【重构】地址确认弹窗逻辑：弹窗默认显示，显示默认地址或用户选点后的地址
+const showAddressConfirmDialog = ref(true) // 【重构】地址确认弹窗默认显示
+const clickedAddress = ref('') // 当前显示的地址（默认地址或用户选点后的地址）
+const clickedLocation = ref(null) // 点击位置的经纬度 { lng, lat }
 
 // 【修复】用于标记是否已执行过搜索，避免重复触发
 let hasSearched = false
@@ -278,6 +375,8 @@ const initAmapMap = async () => {
     }
 
     // 【优化】步骤3：加载高德地图API（使用工具函数）
+    // 注意：高德安全密钥已在模块加载时配置（window._AMapSecurityConfig）
+    // 注意：安全密钥配置必须在API加载之前执行
     console.log('📍 [initAmapMap] 步骤3：加载高德地图API（强制执行）...')
     try {
       await loadAmapApiScript(amapKey)
@@ -322,6 +421,7 @@ const initAmapMap = async () => {
     // 【优化】即使出错，如果Key已获取，也尝试强制加载API（兜底，使用工具函数）
     if (amapKey && (!window.AMap || !window.AMap.Map)) {
       console.log('🔄 [initAmapMap] 尝试兜底：强制加载API...')
+      // 注意：高德安全密钥已在模块加载时配置（window._AMapSecurityConfig）
       try {
         await loadAmapApiScript(amapKey)
         console.log('✅ [initAmapMap] 兜底API加载成功')
@@ -364,6 +464,7 @@ const createAmapInstanceWithKey = async (apiKey) => {
 // 【新增】重试加载地图
 const retryLoadMap = () => {
   if (mapType.value === 'amap') {
+    // 注意：高德安全密钥已在模块加载时配置（window._AMapSecurityConfig）
     initAmapMap()
   } else {
     initGoogleMap()
@@ -500,10 +601,17 @@ const createAmapInstance = (retryCount = 0) => {
         mapLoaded.value = false
       })
 
-      // 地图点击事件 - 选点后显示地址
+      // 地图点击事件 - 支持两种模式：原有逻辑（搜索标记）和新增选点功能
       mapInstance.on('click', async (e) => {
         const lng = e.lnglat.getLng()
         const lat = e.lnglat.getLat()
+        
+        // 【新增】优先处理选点功能（如果弹窗未显示，则执行选点逻辑）
+        if (!showAddressConfirmDialog.value) {
+          await handleMapClickForSelection(lng, lat)
+        }
+        
+        // 保留原有逻辑（用于搜索标记和底部信息栏更新）
         await handleMapClick(lng, lat)
       })
 
@@ -568,10 +676,15 @@ const createGoogleInstance = () => {
         }, 300)
       }
 
-      // 地图点击事件
+      // 地图点击事件 - 支持两种模式：原有逻辑（搜索标记）和新增选点功能
       googleMapInstance.addListener('click', async (e) => {
         const lng = e.latLng.lng()
         const lat = e.latLng.lat()
+        
+        // 【重构】处理选点功能（弹窗默认显示，点击地图后更新弹窗内的地址）
+        await handleMapClickForSelection(lng, lat)
+        
+        // 保留原有逻辑（用于搜索标记和底部信息栏更新）
         await handleMapClick(lng, lat)
       })
     } catch (err) {
@@ -581,8 +694,9 @@ const createGoogleInstance = () => {
 }
 
 // 【新增】处理地图点击事件（统一处理）
+// 【修复】保留原有逻辑，同时支持选点功能
 const handleMapClick = async (lng, lat) => {
-  // 更新标记位置
+  // 更新标记位置（保留原有搜索标记逻辑）
   if (mapType.value === 'amap' && mapInstance) {
     if (marker) {
       marker.setPosition([lng, lat])
@@ -634,6 +748,176 @@ const handleMapClick = async (lng, lat) => {
       address: ''
     }
   }
+}
+
+// 【重构】处理地图选点事件（新增的选点功能）
+// 选点逻辑：点击地图任意位置，添加标记点，解析地址，更新弹窗内的地址文本
+const handleMapClickForSelection = async (lng, lat) => {
+  console.log('📍 [handleMapClickForSelection] 地图选点，坐标:', [lng, lat])
+  
+  // 保存点击位置
+  clickedLocation.value = { lng, lat }
+  
+  // 【重构】显示加载状态，更新弹窗内的地址文本（不控制弹窗显示，因为弹窗默认显示）
+  clickedAddress.value = '正在解析地址...'
+  
+  // 【新增】步骤1：清除旧选点标记，添加新标记点（每次仅保留一个标记点）
+  if (mapType.value === 'amap' && mapInstance) {
+    // 清除旧选点标记
+    if (clickMarker) {
+      clickMarker.setMap(null)
+      clickMarker = null
+    }
+    
+    // 添加新选点标记（使用高德默认标记样式，保持简洁）
+    clickMarker = new window.AMap.Marker({
+      position: [lng, lat],
+      map: mapInstance,
+      title: '选点位置'
+    })
+    console.log('✅ [handleMapClickForSelection] 选点标记已添加')
+  } else if (mapType.value === 'google' && googleMapInstance) {
+    // 清除旧选点标记
+    if (clickMarker) {
+      clickMarker.setMap(null)
+      clickMarker = null
+    }
+    
+    // 添加新选点标记
+    clickMarker = new window.google.maps.Marker({
+      position: { lat, lng },
+      map: googleMapInstance,
+      title: '选点位置'
+    })
+    console.log('✅ [handleMapClickForSelection] 选点标记已添加')
+  }
+  
+  // 【新增】步骤2：通过高德Geocoder API解析点击位置的经纬度，获取formattedAddress（详细地址）
+  try {
+    if (mapType.value === 'amap' && mapInstance && window.AMap) {
+      // 使用高德Geocoder进行逆地理编码
+      window.AMap.plugin('AMap.Geocoder', () => {
+        const geocoder = new window.AMap.Geocoder({
+          city: '全国' // 全国范围
+        })
+        
+        // 调用getAddress方法解析经纬度为详细地址
+        geocoder.getAddress([lng, lat], (status, result) => {
+          if (status === 'complete' && result && result.regeocode) {
+            const address = result.regeocode.formattedAddress || result.regeocode.address || '地址解析成功'
+            clickedAddress.value = address
+            console.log('✅ [handleMapClickForSelection] 地址解析成功:', address)
+          } else {
+            clickedAddress.value = '地址解析失败，请重试'
+            console.error('❌ [handleMapClickForSelection] 地址解析失败:', status, result)
+          }
+        })
+      })
+    } else if (mapType.value === 'google' && googleMapInstance && window.google) {
+      // Google地图使用Geocoder API
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === 'OK' && results && results.length > 0) {
+          const address = results[0].formatted_address || '地址解析成功'
+          clickedAddress.value = address
+          console.log('✅ [handleMapClickForSelection] 地址解析成功:', address)
+        } else {
+          // 【重构】地址解析失败时，弹窗仍显示默认地址，避免空白
+          clickedAddress.value = props.defaultAddress && props.defaultAddress.trim() ? props.defaultAddress.trim() : '地址解析失败，请重试'
+          console.error('❌ [handleMapClickForSelection] 地址解析失败:', status)
+        }
+      })
+    } else {
+      // 【重构】地图未初始化时，弹窗仍显示默认地址，避免空白
+      clickedAddress.value = props.defaultAddress && props.defaultAddress.trim() ? props.defaultAddress.trim() : '地图未初始化，无法解析地址'
+      console.error('❌ [handleMapClickForSelection] 地图未初始化')
+    }
+  } catch (err) {
+    // 【重构】地址解析异常时，弹窗仍显示默认地址，避免空白
+    clickedAddress.value = props.defaultAddress && props.defaultAddress.trim() ? props.defaultAddress.trim() : ('地址解析异常：' + (err.message || '未知错误'))
+    console.error('❌ [handleMapClickForSelection] 地址解析异常:', err)
+  }
+}
+
+// 【重构】确认填充按钮逻辑
+// 无论是否修改地址，点击"确认填充"均触发地址传递
+// 若用户不修改地址：使用props.defaultAddress；若用户点击地图选点：使用解析后的formattedAddress
+const confirmAddressFill = () => {
+  // 【重构】确定要传递的地址：优先使用用户选点后的地址，否则使用默认地址
+  let finalAddress = ''
+  let finalLng = null
+  let finalLat = null
+  
+  // 如果用户点击了地图选点，且地址解析成功，使用选点地址
+  if (clickedLocation.value && clickedAddress.value && 
+      clickedAddress.value !== '正在解析地址...' && 
+      clickedAddress.value !== '地址解析失败，请重试' && 
+      clickedAddress.value !== '地址解析异常：' + '未知错误' &&
+      !clickedAddress.value.includes('地址解析异常') &&
+      !clickedAddress.value.includes('地图未初始化')) {
+    finalAddress = clickedAddress.value
+    finalLng = clickedLocation.value.lng
+    finalLat = clickedLocation.value.lat
+    console.log('✅ [confirmAddressFill] 使用用户选点地址:', finalAddress)
+  } 
+  // 否则使用默认地址
+  else if (props.defaultAddress && props.defaultAddress.trim()) {
+    finalAddress = props.defaultAddress.trim()
+    console.log('✅ [confirmAddressFill] 使用默认地址:', finalAddress)
+  }
+  // 如果既没有选点地址也没有默认地址，提示用户
+  else {
+    console.warn('⚠️ [confirmAddressFill] 无可用地址（既无选点地址也无默认地址）')
+    alert('请先在地图上选点或提供默认地址')
+    return
+  }
+  
+  // 触发select-address事件，传递地址信息（formattedAddress作为主要参数）
+  const addressData = {
+    formattedAddress: finalAddress, // 详细地址（formattedAddress）
+    address: finalAddress, // 兼容字段
+    lng: finalLng, // 经度（如果用户选点）
+    lat: finalLat // 纬度（如果用户选点）
+  }
+  
+  emit('select-address', addressData)
+  console.log('✅ [confirmAddressFill] 地址已确认并传递给父组件:', addressData)
+  
+  // 【重构】可选：关闭弹窗（或保留弹窗便于二次修改，这里选择保留）
+  // showAddressConfirmDialog.value = false
+  
+  // 同时更新selectedLocation，以便底部信息栏显示
+  if (finalLng !== null && finalLat !== null) {
+    selectedLocation.value = {
+      lng: finalLng,
+      lat: finalLat,
+      address: finalAddress
+    }
+  } else {
+    selectedLocation.value = {
+      address: finalAddress
+    }
+  }
+}
+
+// 【重构】清除选点按钮逻辑
+// 清除地图标记点，恢复默认地址显示，保留弹窗
+const cancelAddressSelection = () => {
+  // 清除地图标记点
+  if (clickMarker) {
+    if (mapType.value === 'amap' && mapInstance) {
+      clickMarker.setMap(null)
+    } else if (mapType.value === 'google' && googleMapInstance) {
+      clickMarker.setMap(null)
+    }
+    clickMarker = null
+  }
+  
+  // 【重构】清空选点数据，恢复默认地址显示（不关闭弹窗）
+  clickedLocation.value = null
+  clickedAddress.value = ''
+  
+  console.log('🔄 [cancelAddressSelection] 已清除选点，恢复默认地址显示')
 }
 
 // 【重构】搜索地点（高德地图）
@@ -1076,16 +1360,31 @@ const switchMap = async () => {
   mapLoaded.value = false
   mapLoadError.value = ''
   
+  // 【新增】清理选点相关状态
+  showAddressConfirmDialog.value = false
+  clickedLocation.value = null
+  clickedAddress.value = ''
+  
   // 清理当前地图的标记
   if (mapType.value === 'amap') {
     if (marker) {
       marker.setMap(null)
       marker = null
     }
+    // 【新增】清理选点标记
+    if (clickMarker) {
+      clickMarker.setMap(null)
+      clickMarker = null
+    }
   } else {
     if (googleMarker) {
       googleMarker.setMap(null)
       googleMarker = null
+    }
+    // 【新增】清理选点标记
+    if (clickMarker) {
+      clickMarker.setMap(null)
+      clickMarker = null
     }
   }
 
@@ -1145,6 +1444,11 @@ const handleClose = () => {
   selectedCity.value = ''
   extractedCity.value = ''
   
+  // 【重构】重置选点相关状态（弹窗状态重置为默认显示，地址重置为默认地址）
+  showAddressConfirmDialog.value = true // 重置为默认显示
+  clickedLocation.value = null
+  clickedAddress.value = props.defaultAddress && props.defaultAddress.trim() ? props.defaultAddress.trim() : ''
+  
   // 清除标记（不销毁地图实例，保留以便下次使用）
   if (marker) {
     marker.setMap(null)
@@ -1155,21 +1459,39 @@ const handleClose = () => {
     googleMarker = null
   }
   
+  // 【新增】清除选点标记
+  if (clickMarker) {
+    if (mapType.value === 'amap' && mapInstance) {
+      clickMarker.setMap(null)
+    } else if (mapType.value === 'google' && googleMapInstance) {
+      clickMarker.setMap(null)
+    }
+    clickMarker = null
+  }
+  
   emit('close')
 }
 
 // 【修复】监听show变化 - 弹窗打开时立即初始化地图
-// 【修复】监听show变化 - 弹窗打开时立即初始化地图（兜底调用）
+// 【修复】高德地图默认初始化：弹窗打开时，等待DOM更新后立即初始化地图（不依赖切换事件）
 watch(() => props.show, async (newVal) => {
   if (newVal) {
     console.log('📍 [watch-show] 地图弹窗已打开，开始初始化流程...')
     console.log('📍 [watch-show] 搜索关键词:', props.searchKeyword || '无')
+    console.log('📍 [watch-show] 默认地址:', props.defaultAddress || '无')
     
-    // 【修复】参数校验：如果未接收到地点名称，提示用户
+    // 【重构】初始化默认地址显示
+    if (props.defaultAddress && props.defaultAddress.trim()) {
+      clickedAddress.value = props.defaultAddress.trim()
+      console.log('✅ [watch-show] 已设置默认地址:', clickedAddress.value)
+    } else {
+      clickedAddress.value = ''
+    }
+    
+    // 【修复】参数校验：如果未接收到地点名称，提示用户（但不阻止地图初始化）
     if (!props.searchKeyword || !props.searchKeyword.trim()) {
       console.warn('⚠️ [watch-show] 未接收到地点名称，地图将显示默认位置（北京）')
-      mapLoadError.value = '请先在行程表单中输入地点名称，然后点击"地图查地址"按钮'
-      // 不阻止地图初始化，但提示用户
+      // 不设置错误提示，允许用户直接选点
     } else {
       // 【修复】如果有搜索关键词，清除之前的错误提示
       if (mapLoadError.value && mapLoadError.value.includes('请先在行程表单中输入地点名称')) {
@@ -1177,11 +1499,12 @@ watch(() => props.show, async (newVal) => {
       }
     }
     
-    // 弹窗打开时，等待DOM更新后初始化地图
+    // 【修复】高德地图默认初始化：弹窗打开时，等待DOM更新后立即初始化地图（不依赖切换事件）
     await nextTick()
     // 延迟200ms确保容器已渲染
     setTimeout(async () => {
       console.log('🚀 [watch-show] 开始调用initMap()初始化地图...')
+      console.log('🚀 [watch-show] 当前地图类型:', mapType.value)
       try {
         await initMap()
         console.log('✅ [watch-show] initMap()执行完成')
@@ -1208,7 +1531,7 @@ watch(() => props.show, async (newVal) => {
           console.error('❌ [watch-show] 兜底初始化也失败:', fallbackErr)
         }
       }
-    }, 200) // 增加延迟到200ms
+    }, 200) // 延迟200ms确保容器已渲染
   } else {
     console.log('📍 [watch-show] 地图弹窗已关闭，清理资源...')
     // 弹窗关闭时清理标记和选中位置
@@ -1260,6 +1583,15 @@ watch(() => props.searchKeyword, (newVal, oldVal, onCleanup) => {
         })
       }
     }
+  }
+})
+
+// 【重构】监听默认地址变化，实时更新弹窗显示
+watch(() => props.defaultAddress, (newVal) => {
+  // 如果用户没有选点，则更新为新的默认地址
+  if (!clickedLocation.value && (!clickedAddress.value || clickedAddress.value === props.defaultAddress)) {
+    clickedAddress.value = newVal && newVal.trim() ? newVal.trim() : ''
+    console.log('🔄 [watch-defaultAddress] 默认地址已更新:', clickedAddress.value)
   }
 })
 
