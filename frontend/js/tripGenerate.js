@@ -7,8 +7,15 @@ let currentTripId = null;
 
 /**
  * 生成行程
+ * 【游客权限逻辑】游客模式下需要登录才能生成行程
  */
 async function generateTrip() {
+  // 【游客权限逻辑】检查是否为游客模式，游客无法生成行程
+  if (!window.userModule.isLoggedIn()) {
+    window.userModule.showLoginGuideModal();
+    return; // 阻止后续操作
+  }
+
   const selectedCollections = window.collectionModule.getSelectedCollections();
   
   if (selectedCollections.length === 0) {
@@ -26,7 +33,7 @@ async function generateTrip() {
 
   const user = window.userModule.getCurrentUser();
   if (!user) {
-    window.api.showToast('请先登录或进入游客模式', 'error');
+    window.api.showToast('请先登录', 'error');
     return;
   }
 

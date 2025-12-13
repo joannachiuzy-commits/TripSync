@@ -63,6 +63,7 @@ async function parseXiaohongshuUrl() {
 
 /**
  * 保存收藏
+ * 【游客权限逻辑】游客模式下需要登录才能保存收藏
  */
 async function saveCollection() {
   if (!currentParseData) {
@@ -70,9 +71,15 @@ async function saveCollection() {
     return;
   }
 
+  // 【游客权限逻辑】检查是否为游客模式，游客无法保存收藏
+  if (!window.userModule.isLoggedIn()) {
+    window.userModule.showLoginGuideModal();
+    return; // 阻止后续操作
+  }
+
   const user = window.userModule.getCurrentUser();
   if (!user) {
-    window.api.showToast('请先登录或进入游客模式', 'error');
+    window.api.showToast('请先登录', 'error');
     return;
   }
 

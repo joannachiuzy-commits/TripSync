@@ -34,8 +34,15 @@ async function loadTripList() {
 
 /**
  * 加载行程详情
+ * 【游客权限逻辑】游客模式下需要登录才能加载行程进行编辑
  */
 async function loadTrip() {
+  // 【游客权限逻辑】检查是否为游客模式，游客无法编辑行程
+  if (!window.userModule.isLoggedIn()) {
+    window.userModule.showLoginGuideModal();
+    return; // 阻止后续操作
+  }
+
   const tripId = document.getElementById('tripSelector').value;
 
   if (!tripId) {
@@ -88,8 +95,14 @@ function displayEditItinerary(itinerary) {
 
 /**
  * 添加行程项目
+ * 【游客权限逻辑】游客模式下需要登录才能添加行程项目
  */
 function addTripItem(dayIndex) {
+  // 【游客权限逻辑】检查是否为游客模式，游客无法编辑行程
+  if (!window.userModule.isLoggedIn()) {
+    window.userModule.showLoginGuideModal();
+    return; // 阻止后续操作
+  }
   const daySection = document.querySelector(`.day-section[data-day-index="${dayIndex}"] .day-items`);
   if (!daySection) return;
 

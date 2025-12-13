@@ -31,6 +31,42 @@ function getCurrentUser() {
 }
 
 /**
+ * 【游客权限逻辑】检测当前是否为登录状态（非游客）
+ * @returns {boolean} true表示已登录，false表示游客模式
+ */
+function isLoggedIn() {
+  const user = getCurrentUser();
+  return user && user.userType !== 'guest'; // 仅非guest用户视为已登录
+}
+
+/**
+ * 【游客权限逻辑】登录引导弹窗函数
+ * 当游客尝试执行需要登录的操作时，弹出引导登录的提示
+ */
+function showLoginGuideModal() {
+  // 优先使用自定义弹窗（如果存在）
+  if (window.api && window.api.showModal) {
+    window.api.showModal({
+      title: '需要登录',
+      content: '收藏/创建行程需登录账号，是否立即登录？',
+      confirmText: '去登录',
+      cancelText: '取消',
+      onConfirm: () => {
+        // 切回登录视图
+        showLoginPage();
+      }
+    });
+  } else {
+    // 降级方案：使用confirm提示
+    const confirmed = confirm('收藏/创建行程需登录账号，是否立即登录？');
+    if (confirmed) {
+      // 切回登录视图
+      showLoginPage();
+    }
+  }
+}
+
+/**
  * 保存用户信息
  */
 function saveUser(user) {
@@ -115,6 +151,33 @@ function reinitializeModules() {
 }
 
 /**
+ * 检测当前是否为登录状态（非游客）
+ * @returns {boolean} true表示已登录，false表示游客模式
+ */
+function isLoggedIn() {
+  const user = getCurrentUser();
+  return user && user.userType !== 'guest';
+}
+
+/**
+ * 显示登录引导弹窗
+ * 游客模式下点击需要登录的操作时，引导用户登录
+ */
+function showLoginGuideModal() {
+  // 优先使用确认对话框引导登录
+  const confirmed = confirm('收藏/创建行程等操作需要登录账号，是否立即登录？\n\n点击"确定"前往登录页面');
+  
+  if (confirmed) {
+    // 切回登录视图
+    showLoginPage();
+    // 显示提示
+    if (window.api && window.api.showToast) {
+      window.api.showToast('请登录后继续操作', 'info');
+    }
+  }
+}
+
+/**
  * 显示主应用页面
  */
 function showAppPage() {
@@ -149,8 +212,18 @@ function showAppPage() {
       } else {
         console.warn('用户昵称显示元素未找到：userNickname');
       }
+      
+      // 新增：根据用户类型标记body类名（用于CSS样式控制）
+      if (user.userType === 'guest') {
+        document.body.classList.add('guest-mode');
+        console.log('已标记为游客模式（CSS样式已应用）');
+      } else {
+        document.body.classList.remove('guest-mode');
+        console.log('已移除游客模式标记');
+      }
     } else {
       console.warn('未获取到用户信息');
+      document.body.classList.remove('guest-mode');
     }
   } catch (error) {
     console.error('显示主应用页面失败:', error);
@@ -331,6 +404,8 @@ window.userModule = {
   clearUser,
   showLoginPage,
   showAppPage,
-  initUser
+  initUser,
+  isLoggedIn,
+  showLoginGuideModal
 };
 
