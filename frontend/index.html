@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TripSync - 智能行程规划</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 登录页面 -->
+  <div id="loginPage" class="page active">
+    <div class="login-container">
+      <h1>🚀 TripSync</h1>
+      <p class="subtitle">智能行程规划助手</p>
+      
+      <div class="login-form">
+        <div class="form-group">
+          <label>昵称</label>
+          <input type="text" id="loginNickname" placeholder="请输入昵称" required>
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <input type="password" id="loginPassword" placeholder="请输入密码" required>
+        </div>
+        <button id="loginBtn" class="btn btn-primary">登录</button>
+        <button id="registerBtn" class="btn btn-secondary">注册</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主应用页面 -->
+  <div id="appPage" class="page">
+    <!-- 顶部导航 -->
+    <header class="header">
+      <h1>TripSync</h1>
+      <div class="user-info">
+        <span id="userNickname"></span>
+        <button id="logoutBtn" class="btn btn-small">退出</button>
+      </div>
+    </header>
+
+    <!-- 标签页导航 -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="collection">收藏夹</button>
+      <button class="tab-btn" data-tab="generate">生成行程</button>
+      <button class="tab-btn" data-tab="edit">行程编辑</button>
+      <button class="tab-btn" data-tab="share">协作分享</button>
+    </nav>
+
+    <!-- 收藏夹模块 -->
+    <div id="collectionTab" class="tab-content active">
+      <div class="container">
+        <h2>📌 小红书链接收藏</h2>
+        
+        <div class="parse-section">
+          <div class="form-group">
+            <label>小红书链接</label>
+            <div class="input-group">
+              <input type="url" id="xiaohongshuUrl" placeholder="请输入小红书链接（如：https://www.xiaohongshu.com/...）">
+              <button id="parseBtn" class="btn btn-primary">解析</button>
+            </div>
+          </div>
+          
+          <!-- 解析结果 -->
+          <div id="parseResult" class="parse-result" style="display: none;">
+            <h3>解析结果</h3>
+            <div class="result-item">
+              <strong>标题：</strong>
+              <span id="parseTitle"></span>
+            </div>
+            <div class="result-item">
+              <strong>内容：</strong>
+              <div id="parseContent"></div>
+            </div>
+            <div class="result-item">
+              <strong>提取地点：</strong>
+              <div id="parsePlaces" class="places-tags"></div>
+            </div>
+            <button id="saveCollectionBtn" class="btn btn-success">收藏</button>
+          </div>
+        </div>
+
+        <div class="collections-list">
+          <h3>我的收藏</h3>
+          <div id="collectionsList" class="list-container">
+            <p class="empty-tip">暂无收藏，请先解析并收藏小红书链接</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 生成行程模块 -->
+    <div id="generateTab" class="tab-content">
+      <div class="container">
+        <h2>✨ AI 生成行程</h2>
+        
+        <div class="generate-form">
+          <div class="form-group">
+            <label>选择收藏</label>
+            <div id="collectionCheckboxes" class="checkboxes-container">
+              <p class="empty-tip">暂无收藏，请先到收藏夹添加</p>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label>行程天数</label>
+              <input type="number" id="tripDays" min="1" max="30" value="3" required>
+            </div>
+            <div class="form-group">
+              <label>预算</label>
+              <input type="text" id="tripBudget" placeholder="如：5000元，不限">
+            </div>
+          </div>
+          
+          <button id="generateTripBtn" class="btn btn-primary btn-large">生成行程</button>
+        </div>
+
+        <!-- 生成结果 -->
+        <div id="generateResult" class="trip-result" style="display: none;">
+          <h3>生成的行程</h3>
+          <div id="generatedItinerary"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 行程编辑模块 -->
+    <div id="editTab" class="tab-content">
+      <div class="container">
+        <h2>✏️ 行程编辑</h2>
+        
+        <div class="trip-selector">
+          <label>选择行程</label>
+          <select id="tripSelector">
+            <option value="">请选择行程</option>
+          </select>
+          <button id="loadTripBtn" class="btn btn-primary">加载行程</button>
+        </div>
+
+        <div id="editTripContainer" style="display: none;">
+          <div id="editItinerary" class="itinerary-editor"></div>
+          <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 协作分享模块 -->
+    <div id="shareTab" class="tab-content">
+      <div class="container">
+        <h2>🔗 协作分享</h2>
+        
+        <div class="share-section">
+          <div class="form-group">
+            <label>选择行程</label>
+            <select id="shareTripSelector">
+              <option value="">请选择行程</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>分享权限</label>
+            <select id="sharePermission">
+              <option value="read">只读</option>
+              <option value="edit">可编辑</option>
+            </select>
+          </div>
+          
+          <button id="createShareBtn" class="btn btn-primary">生成分享链接</button>
+        </div>
+
+        <!-- 分享链接结果 -->
+        <div id="shareResult" class="share-result" style="display: none;">
+          <h3>分享链接</h3>
+          <div class="input-group">
+            <input type="text" id="shareLinkInput" readonly>
+            <button id="copyShareBtn" class="btn btn-success">复制</button>
+          </div>
+          <p class="tip">分享此链接给他人，对方可以通过链接查看或编辑行程</p>
+        </div>
+
+        <div class="share-section">
+          <h3>通过链接访问</h3>
+          <div class="form-group">
+            <label>分享链接</label>
+            <div class="input-group">
+              <input type="text" id="verifyShareInput" placeholder="请输入分享链接">
+              <button id="verifyShareBtn" class="btn btn-primary">验证并打开</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="sharedTripContainer" style="display: none;">
+          <h3>共享行程</h3>
+          <div id="sharedTripContent"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 加载提示 -->
+  <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div class="loading-spinner"></div>
+    <p>加载中...</p>
+  </div>
+
+  <!-- 提示消息 -->
+  <div id="toast" class="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/amapConfig.js"></script>
+  <script src="js/user.js"></script>
+  <script src="js/collection.js"></script>
+  <script src="js/tripGenerate.js"></script>
+  <script src="js/tripEdit.js"></script>
+  <script src="js/share.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
+
