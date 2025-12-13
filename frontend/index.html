@@ -5,10 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TripSync - 智能行程规划</title>
   <link rel="stylesheet" href="css/style.css">
+  
+  <!-- 高德地图安全密钥配置（必须在加载高德API之前执行） -->
+  <script type="text/javascript">
+    // 同步获取后端配置，确保在高德API加载前配置安全密钥
+    (function() {
+      try {
+        // 使用同步XMLHttpRequest确保配置在API加载前完成
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/config/amap', false); // false表示同步请求
+        xhr.send();
+        
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+          if (data.code === 0 && data.data.securityJsCode) {
+            window._AMapSecurityConfig = {
+              securityJsCode: data.data.securityJsCode
+            };
+            console.log('✅ 高德地图安全密钥配置成功:', data.data.securityJsCode.substring(0, 8) + '****');
+          } else if (data.code === 0 && !data.data.securityJsCode) {
+            console.warn('⚠️  高德前端安全密钥未配置，前端地图功能可能受限');
+            console.warn('   提示：请在服务器 .env 文件中配置 AMAP_FRONT_SECURITY_JSCODE');
+          } else {
+            console.warn('⚠️  获取高德配置失败:', data.msg || '未知错误');
+          }
+        } else {
+          console.warn('⚠️  获取高德配置失败: HTTP ' + xhr.status);
+          // 如果同步请求失败，尝试异步方式作为备选
+          fetch('/api/config/amap')
+            .then(res => res.json())
+            .then(data => {
+              if (data.code === 0 && data.data.securityJsCode) {
+                window._AMapSecurityConfig = {
+                  securityJsCode: data.data.securityJsCode
+                };
+                console.log('✅ 高德地图安全密钥配置成功（异步）');
+              }
+            })
+            .catch(err => {
+              console.warn('⚠️  异步获取高德配置也失败:', err);
+            });
+        }
+      } catch (err) {
+        console.warn('⚠️  获取高德配置失败:', err);
+        // 如果同步请求失败，尝试异步方式作为备选
+        fetch('/api/config/amap')
+          .then(res => res.json())
+          .then(data => {
+            if (data.code === 0 && data.data.securityJsCode) {
+              window._AMapSecurityConfig = {
+                securityJsCode: data.data.securityJsCode
+              };
+              console.log('✅ 高德地图安全密钥配置成功（异步备选）');
+            }
+          })
+          .catch(fetchErr => {
+            console.warn('⚠️  异步获取高德配置也失败:', fetchErr);
+          });
+      }
+    })();
+  </script>
 </head>
 <body>
-  <!-- 登录页面 -->
-  <div id="loginPage" class="page active">
+  <!-- 登录视图容器（全屏） -->
+  <div id="loginPage" class="view-container login-view">
     <div class="login-container">
       <h1>🚀 TripSync</h1>
       <p class="subtitle">智能行程规划助手</p>
@@ -24,12 +84,13 @@
         </div>
         <button id="loginBtn" class="btn btn-primary">登录</button>
         <button id="registerBtn" class="btn btn-secondary">注册</button>
+        <button id="guestBtn" class="btn btn-guest">游客进入</button>
       </div>
     </div>
   </div>
 
-  <!-- 主应用页面 -->
-  <div id="appPage" class="page">
+  <!-- 主应用视图容器（全屏，初始隐藏） -->
+  <div id="appPage" class="view-container app-view" style="display: none;">
     <!-- 顶部导航 -->
     <header class="header">
       <h1>TripSync</h1>

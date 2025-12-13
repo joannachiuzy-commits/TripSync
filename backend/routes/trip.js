@@ -7,7 +7,17 @@ const express = require('express');
 const router = express.Router();
 const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem } = require('../utils/fileUtil');
 const { generateItinerary } = require('../utils/gptUtil');
+const { getOrCreateGuestUser } = require('./user');
 const crypto = require('crypto');
+
+/**
+ * 获取用户ID（支持userId和guestId）
+ * @param {Object} req 请求对象
+ * @returns {string|null} 用户ID
+ */
+function getUserId(req) {
+  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
+}
 
 /**
  * AI 生成行程
@@ -16,7 +26,8 @@ const crypto = require('crypto');
  */
 router.post('/generate', async (req, res) => {
   try {
-    const { userId, collectionIds, days, budget } = req.body;
+    const { collectionIds, days, budget } = req.body;
+    const userId = getUserId(req); // 支持userId和guestId
 
     if (!userId || !collectionIds || !Array.isArray(collectionIds) || collectionIds.length === 0) {
       return res.json({
@@ -24,6 +35,11 @@ router.post('/generate', async (req, res) => {
         data: null,
         msg: '用户ID和收藏ID列表不能为空'
       });
+    }
+
+    // 如果是游客ID，创建或获取游客用户
+    if (userId.startsWith('guest_')) {
+      await getOrCreateGuestUser(userId);
     }
 
     if (!days || days < 1) {
@@ -100,7 +116,7 @@ router.post('/generate', async (req, res) => {
  */
 router.get('/list', async (req, res) => {
   try {
-    const { userId } = req.query;
+    const userId = getUserId(req); // 支持userId和guestId
 
     if (!userId) {
       return res.json({
@@ -108,6 +124,11 @@ router.get('/list', async (req, res) => {
         data: null,
         msg: '用户ID不能为空'
       });
+    }
+
+    // 如果是游客ID，创建或获取游客用户
+    if (userId.startsWith('guest_')) {
+      await getOrCreateGuestUser(userId);
     }
 
     const trips = await readJsonFile('trips.json');

@@ -36,10 +36,20 @@ router.post('/route', async (req, res) => {
     });
   } catch (error) {
     console.error('路线规划错误:', error);
-    res.json({
+    
+    // 检查是否为高德API特定错误
+    const errorMessage = error.message || '路线规划失败';
+    let statusCode = 200; // 保持原有响应格式
+    
+    // 如果是密钥相关错误，返回更明确的提示
+    if (errorMessage.includes('密钥类型不匹配') || errorMessage.includes('USERKEY_PLAT_NOMATCH')) {
+      statusCode = 400;
+    }
+    
+    res.status(statusCode).json({
       code: 1,
       data: null,
-      msg: error.message || '路线规划失败'
+      msg: errorMessage
     });
   }
 });
@@ -70,10 +80,18 @@ router.post('/geocode', async (req, res) => {
     });
   } catch (error) {
     console.error('地理编码错误:', error);
-    res.json({
+    
+    const errorMessage = error.message || '地理编码失败';
+    let statusCode = 200;
+    
+    if (errorMessage.includes('密钥类型不匹配') || errorMessage.includes('USERKEY_PLAT_NOMATCH')) {
+      statusCode = 400;
+    }
+    
+    res.status(statusCode).json({
       code: 1,
       data: null,
-      msg: error.message || '地理编码失败'
+      msg: errorMessage
     });
   }
 });
@@ -104,10 +122,18 @@ router.post('/reverse-geocode', async (req, res) => {
     });
   } catch (error) {
     console.error('逆地理编码错误:', error);
-    res.json({
+    
+    const errorMessage = error.message || '逆地理编码失败';
+    let statusCode = 200;
+    
+    if (errorMessage.includes('密钥类型不匹配') || errorMessage.includes('USERKEY_PLAT_NOMATCH')) {
+      statusCode = 400;
+    }
+    
+    res.status(statusCode).json({
       code: 1,
       data: null,
-      msg: error.message || '逆地理编码失败'
+      msg: errorMessage
     });
   }
 });

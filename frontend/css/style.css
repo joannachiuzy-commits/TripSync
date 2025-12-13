@@ -29,7 +29,33 @@ body {
   line-height: 1.6;
 }
 
-/* 页面切换 */
+/* 视图容器：全屏固定定位，占满整个窗口 */
+.view-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  z-index: 1;
+}
+
+/* 登录视图 */
+.login-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  z-index: 2; /* 登录视图在上层 */
+}
+
+/* 主应用视图 */
+.app-view {
+  background: var(--bg-color);
+  z-index: 1; /* 主应用视图在下层 */
+}
+
+/* 兼容旧代码：保留.page类的样式（向后兼容） */
 .page {
   display: none;
 }
@@ -38,13 +64,9 @@ body {
   display: block;
 }
 
-/* 登录页面 */
+/* 登录页面（保留原有样式，用于.login-container内部） */
 #loginPage {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* 样式已移至.login-view，此处保留空样式以兼容 */
 }
 
 .login-container {
@@ -91,8 +113,9 @@ body {
   margin-top: 0.5rem;
 }
 
-/* 主应用页面 */
+/* 主应用页面（保留原有样式，用于内部元素） */
 #appPage {
+  /* 样式已移至.app-view，此处保留空样式以兼容 */
   min-height: 100vh;
 }
 
@@ -233,6 +256,22 @@ body {
 
 .btn-secondary:hover {
   background: #1976D2;
+}
+
+.btn-guest {
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.3s;
+  margin-top: 0.5rem;
+}
+
+.btn-guest:hover {
+  background-color: #357abd;
 }
 
 .btn-success {

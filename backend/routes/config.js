@@ -51,16 +51,24 @@ router.get('/amap', (req, res) => {
       });
     }
 
+    // 获取前端安全密钥
+    const securityJsCode = process.env.AMAP_FRONT_SECURITY_JSCODE || '';
+    
+    // 如果未配置前端安全密钥，在响应中提示
+    if (!securityJsCode) {
+      console.warn('⚠️  高德前端安全密钥未配置：请在 .env 文件中配置 AMAP_FRONT_SECURITY_JSCODE 以支持前端地图功能');
+    }
+    
     // 返回前端配置（不包含后端安全密钥）
     res.json({
       code: 0,
       data: {
         key: config.key,
         // 前端安全密钥（如果配置了）
-        securityJsCode: process.env.AMAP_FRONT_SECURITY_JSCODE || '',
+        securityJsCode: securityJsCode,
         apiDomain: config.apiDomain
       },
-      msg: '获取成功'
+      msg: securityJsCode ? '获取成功' : '获取成功（提示：请配置 AMAP_FRONT_SECURITY_JSCODE 以支持前端地图功能）'
     });
   } catch (error) {
     console.error('获取高德配置错误:', error);

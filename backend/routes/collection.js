@@ -7,7 +7,17 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { readJsonFile, appendToJsonArray } = require('../utils/fileUtil');
+const { getOrCreateGuestUser } = require('./user');
 const crypto = require('crypto');
+
+/**
+ * 获取用户ID（支持userId和guestId）
+ * @param {Object} req 请求对象
+ * @returns {string|null} 用户ID
+ */
+function getUserId(req) {
+  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
+}
 
 /**
  * 解析小红书链接
@@ -102,7 +112,8 @@ router.post('/parse', async (req, res) => {
  */
 router.post('/save', async (req, res) => {
   try {
-    const { userId, url, title, content, places } = req.body;
+    const { url, title, content, places } = req.body;
+    const userId = getUserId(req); // 支持userId和guestId
 
     if (!userId || !url) {
       return res.json({
@@ -110,6 +121,11 @@ router.post('/save', async (req, res) => {
         data: null,
         msg: '用户ID和链接不能为空'
       });
+    }
+
+    // 如果是游客ID，创建或获取游客用户
+    if (userId.startsWith('guest_')) {
+      await getOrCreateGuestUser(userId);
     }
 
     const collectionId = crypto.randomBytes(8).toString('hex');
@@ -148,7 +164,7 @@ router.post('/save', async (req, res) => {
  */
 router.get('/list', async (req, res) => {
   try {
-    const { userId } = req.query;
+    const userId = getUserId(req); // 支持userId和guestId
 
     if (!userId) {
       return res.json({
@@ -156,6 +172,11 @@ router.get('/list', async (req, res) => {
         data: null,
         msg: '用户ID不能为空'
       });
+    }
+
+    // 如果是游客ID，创建或获取游客用户
+    if (userId.startsWith('guest_')) {
+      await getOrCreateGuestUser(userId);
     }
 
     const collections = await readJsonFile('collections.json');

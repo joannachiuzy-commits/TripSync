@@ -26,7 +26,7 @@ async function generateTrip() {
 
   const user = window.userModule.getCurrentUser();
   if (!user) {
-    window.api.showToast('请先登录', 'error');
+    window.api.showToast('请先登录或进入游客模式', 'error');
     return;
   }
 

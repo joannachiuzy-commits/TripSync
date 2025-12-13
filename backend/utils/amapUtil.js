@@ -27,6 +27,35 @@ function validateConfig() {
   if (!AMAP_KEY) {
     throw new Error('高德配置错误：AMAP_KEY 未配置，请在 .env 文件中设置');
   }
+  
+  // 提示用户确保AMAP_KEY类型为「Web服务」
+  console.log('📌 高德地图配置提示：请确保 AMAP_KEY 为「Web 服务」类型（获取地址：https://console.amap.com/dev/key/app）');
+}
+
+/**
+ * 处理高德API错误，返回友好的错误信息
+ * @param {Error|string} error 错误对象或错误信息
+ * @returns {Error} 格式化后的错误对象
+ */
+function handleAMapError(error) {
+  const errorMessage = error.message || error.toString() || '';
+  const errorInfo = error.response?.data?.info || errorMessage;
+  
+  // 检查常见的高德API错误码
+  if (errorInfo.includes('USERKEY_PLAT_NOMATCH')) {
+    return new Error('高德密钥类型不匹配，请将AMAP_KEY更换为「Web服务」类型（获取地址：https://console.amap.com/dev/key/app）');
+  }
+  
+  if (errorInfo.includes('INVALID_USER_SCODE')) {
+    return new Error('高德前端安全密钥无效，请检查AMAP_FRONT_SECURITY_JSCODE配置');
+  }
+  
+  if (errorInfo.includes('INVALID_USER_KEY')) {
+    return new Error('高德密钥无效，请检查AMAP_KEY配置是否正确');
+  }
+  
+  // 返回原始错误信息
+  return new Error(errorInfo || '高德API调用失败');
 }
 
 /**
@@ -90,7 +119,8 @@ async function planRoute(origin, destination, waypoints = [], strategy = '4') {
     const response = await axios.get(url, { params });
 
     if (response.data.status !== '1') {
-      throw new Error(`高德 API 错误: ${response.data.info || '未知错误'}`);
+      const error = new Error(response.data.info || '未知错误');
+      throw handleAMapError(error);
     }
 
     const route = response.data.route;
@@ -106,10 +136,8 @@ async function planRoute(origin, destination, waypoints = [], strategy = '4') {
       polyline: paths[0]?.polyline || '' // 路线坐标点（用于绘制）
     };
   } catch (error) {
-    if (error.response) {
-      throw new Error(`高德 API 请求失败: ${error.response.data?.info || error.message}`);
-    }
-    throw error;
+    // 使用统一的错误处理函数
+    throw handleAMapError(error);
   }
 }
 
@@ -134,7 +162,8 @@ async function geocode(address) {
     const response = await axios.get(url, { params });
 
     if (response.data.status !== '1') {
-      throw new Error(`高德 API 错误: ${response.data.info || '未知错误'}`);
+      const error = new Error(response.data.info || '未知错误');
+      throw handleAMapError(error);
     }
 
     const geocodes = response.data.geocodes || [];
@@ -147,10 +176,8 @@ async function geocode(address) {
       formatted_address: geocodes[0].formatted_address
     };
   } catch (error) {
-    if (error.response) {
-      throw new Error(`高德 API 请求失败: ${error.response.data?.info || error.message}`);
-    }
-    throw error;
+    // 使用统一的错误处理函数
+    throw handleAMapError(error);
   }
 }
 
@@ -175,7 +202,8 @@ async function reverseGeocode(location) {
     const response = await axios.get(url, { params });
 
     if (response.data.status !== '1') {
-      throw new Error(`高德 API 错误: ${response.data.info || '未知错误'}`);
+      const error = new Error(response.data.info || '未知错误');
+      throw handleAMapError(error);
     }
 
     const regeocode = response.data.regeocode || {};
@@ -184,10 +212,8 @@ async function reverseGeocode(location) {
       addressComponent: regeocode.addressComponent || {}
     };
   } catch (error) {
-    if (error.response) {
-      throw new Error(`高德 API 请求失败: ${error.response.data?.info || error.message}`);
-    }
-    throw error;
+    // 使用统一的错误处理函数
+    throw handleAMapError(error);
   }
 }
 
@@ -208,6 +234,7 @@ module.exports = {
   geocode,
   reverseGeocode,
   getConfig,
-  validateConfig
+  validateConfig,
+  handleAMapError
 };
 

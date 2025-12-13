@@ -6,7 +6,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+// 加载根目录的.env文件（而非backend/.env）
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -168,6 +169,12 @@ try {
   // 检查高德配置（启动时仅警告，不阻止启动）
   validateConfig();
   console.log('✅ 高德地图配置检查通过');
+  // 验证AMAP_KEY是否正确加载（仅显示前8位和后4位，用于调试）
+  if (process.env.AMAP_KEY) {
+    const key = process.env.AMAP_KEY;
+    const maskedKey = key.length > 12 ? `${key.substring(0, 8)}****${key.substring(key.length - 4)}` : '****';
+    console.log(`   AMAP_KEY: ${maskedKey} (已加载)`);
+  }
 } catch (error) {
   console.warn('⚠️  高德地图配置警告:', error.message);
   console.warn('   高德相关功能将不可用，请检查 .env 文件中的配置');

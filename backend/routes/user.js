@@ -9,6 +9,39 @@ const { readJsonFile, appendToJsonArray, findJsonArrayItem } = require('../utils
 const crypto = require('crypto');
 
 /**
+ * 获取用户ID（支持userId和guestId）
+ * @param {Object} req 请求对象
+ * @returns {string|null} 用户ID
+ */
+function getUserId(req) {
+  // 优先从body获取，其次从query获取
+  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
+}
+
+/**
+ * 创建或获取游客用户
+ * @param {string} guestId 游客ID
+ * @returns {Promise<Object>} 游客用户对象
+ */
+async function getOrCreateGuestUser(guestId) {
+  const users = await readJsonFile('users.json');
+  let guestUser = users.find(u => u.userId === guestId && u.userType === 'guest');
+  
+  if (!guestUser) {
+    // 创建新的游客用户
+    guestUser = {
+      userId: guestId,
+      nickname: '游客',
+      userType: 'guest',
+      createdAt: new Date().toISOString()
+    };
+    await appendToJsonArray('users.json', guestUser);
+  }
+  
+  return guestUser;
+}
+
+/**
  * 用户注册
  * POST /api/user/register
  * Body: { nickname, password }
@@ -25,15 +58,15 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 检查用户是否已存在
+    // 检查用户是否已存在（昵称唯一性校验）
     const users = await readJsonFile('users.json');
-    const existingUser = users.find(u => u.nickname === nickname);
+    const existingUser = users.find(u => u.nickname === nickname && u.userType !== 'guest');
     
     if (existingUser) {
       return res.json({
         code: 1,
         data: null,
-        msg: '该昵称已存在'
+        msg: '该昵称已存在，请使用其他昵称'
       });
     }
 
@@ -45,6 +78,7 @@ router.post('/register', async (req, res) => {
       userId,
       nickname,
       passwordHash,
+      userType: 'formal', // 标记为正式用户
       createdAt: new Date().toISOString()
     };
 
@@ -97,6 +131,15 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // 游客用户不能通过此接口登录
+    if (user.userType === 'guest') {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '游客用户无法登录，请先注册账号'
+      });
+    }
+
     // 验证密码
     const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
     if (user.passwordHash !== passwordHash) {
@@ -129,5 +172,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// 导出工具函数供其他路由使用
 module.exports = router;
+module.exports.getUserId = getUserId;
+module.exports.getOrCreateGuestUser = getOrCreateGuestUser;
 
