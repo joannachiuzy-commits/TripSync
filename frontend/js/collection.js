@@ -136,17 +136,71 @@ async function loadCollections() {
       return;
     }
 
-    container.innerHTML = collections.map(collection => `
-      <div class="collection-item" data-collection-id="${collection.collectionId}">
-        <div class="collection-title">${collection.title}</div>
-        <div class="collection-url">${collection.url}</div>
-        ${collection.places && collection.places.length > 0 ? `
-          <div class="collection-places">
-            ${collection.places.map(place => `<span class="place-tag">${place}</span>`).join('')}
+    // 转义HTML特殊字符，防止XSS攻击
+    const escapeHtml = (text) => {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    };
+    
+    container.innerHTML = collections.map(collection => {
+      const title = escapeHtml(collection.title || '未命名收藏');
+      // URL不需要转义，但需要验证和清理
+      const url = (collection.url || '').trim();
+      const content = escapeHtml(collection.content || '暂无笔记正文');
+      const places = collection.places && collection.places.length > 0 
+        ? collection.places.map(place => `<span class="location-tag">${escapeHtml(place)}</span>`).join('')
+        : '';
+      
+      return `
+        <div class="collection-item clickable" data-collection-id="${collection.collectionId}">
+          <!-- 收起状态：仅显示标题+链接 -->
+          <div class="collection-header">
+            <h4 class="collection-title">${title}</h4>
+            ${url ? `
+              <a href="${url}" target="_blank" class="collection-link" title="打开原笔记" rel="noopener noreferrer">
+                查看原笔记
+              </a>
+            ` : ''}
           </div>
-        ` : ''}
-      </div>
-    `).join('');
+          <!-- 展开状态：显示完整详情 -->
+          <div class="collection-detail" style="display: none;">
+            <p class="collection-content">${content}</p>
+            ${places ? `
+              <div class="collection-locations">
+                ${places}
+              </div>
+            ` : ''}
+            <button class="collapse-btn">收起详情</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // 添加交互逻辑：点击收藏项展开/收起详情
+    document.querySelectorAll('.collection-item.clickable').forEach(item => {
+      item.addEventListener('click', (e) => {
+        // 避免点击链接/按钮时触发展开（阻止事件冒泡）
+        if (e.target.matches('.collection-link, .collapse-btn')) return;
+        
+        const detail = item.querySelector('.collection-detail');
+        if (detail) {
+          detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+        }
+      });
+    });
+
+    // 添加交互逻辑：点击"收起详情"按钮
+    document.querySelectorAll('.collapse-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 阻止事件冒泡
+        const detail = e.target.closest('.collection-detail');
+        if (detail) {
+          detail.style.display = 'none';
+        }
+      });
+    });
 
     // 更新生成行程页面的收藏复选框
     updateCollectionCheckboxes(collections);
