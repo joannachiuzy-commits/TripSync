@@ -10,7 +10,7 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3006;
 
 // 中间件配置
 app.use(cors()); // 允许跨域请求

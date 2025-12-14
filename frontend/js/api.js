@@ -3,7 +3,7 @@
  * 统一处理接口调用、错误处理、加载状态
  */
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = 'http://localhost:3006/api';
 
 /**
  * 通用请求方法

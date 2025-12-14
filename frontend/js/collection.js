@@ -192,6 +192,49 @@ function getSelectedCollections() {
 }
 
 /**
+ * 处理小红书链接粘贴事件
+ * 自动提取以https://www.xiaohongshu.com开头的URL，清除前面的多余内容
+ */
+function handleXiaohongshuUrlPaste(e) {
+  // 阻止默认粘贴行为，手动处理内容
+  e.preventDefault();
+  
+  // 获取粘贴板中的内容
+  const pasteContent = (e.clipboardData || window.clipboardData).getData('text');
+  if (!pasteContent) return;
+  
+  const xhsLinkInput = document.getElementById('xiaohongshuUrl');
+  if (!xhsLinkInput) return;
+  
+  // 正则匹配小红书链接（匹配以https://www.xiaohongshu.com开头的完整URL）
+  // 匹配规则：
+  // 1. https://www.xiaohongshu.com 或 https://xiaohongshu.com
+  // 2. 后面跟路径部分（非空白字符），直到遇到空白字符、换行符、中文字符或字符串结束
+  // 3. 支持匹配到问号?、井号#等URL参数和锚点
+  const xhsLinkRegex = /https?:\/\/(www\.)?xiaohongshu\.com[^\s\u4e00-\u9fa5\n\r]+/;
+  const matchResult = pasteContent.match(xhsLinkRegex);
+  
+  if (matchResult && matchResult[0]) {
+    // 提取到有效链接，设置到输入框
+    const extractedUrl = matchResult[0].trim();
+    xhsLinkInput.value = extractedUrl;
+    
+    // 显示成功提示（使用较短的提示时间，避免干扰用户）
+    if (window.api && window.api.showToast) {
+      window.api.showToast('已自动提取链接', 'success');
+    }
+    
+    console.log('已自动提取小红书链接:', extractedUrl);
+  } else {
+    // 未匹配到有效链接，允许粘贴原始内容（用户可能手动输入或复制了其他内容）
+    xhsLinkInput.value = pasteContent;
+    
+    // 静默处理，不显示错误提示（避免干扰用户手动输入）
+    console.log('未检测到小红书链接格式，保留原始粘贴内容');
+  }
+}
+
+/**
  * 初始化收藏夹模块
  */
 function initCollection() {
@@ -201,8 +244,14 @@ function initCollection() {
   // 保存收藏按钮
   document.getElementById('saveCollectionBtn').addEventListener('click', saveCollection);
 
+  // 小红书链接输入框的粘贴事件处理
+  const xhsLinkInput = document.getElementById('xiaohongshuUrl');
+  if (xhsLinkInput) {
+    xhsLinkInput.addEventListener('paste', handleXiaohongshuUrlPaste);
+  }
+
   // 回车键解析
-  document.getElementById('xiaohongshuUrl').addEventListener('keypress', (e) => {
+  xhsLinkInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       parseXiaohongshuUrl();
     }
