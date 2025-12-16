@@ -6,8 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { readJsonFile, appendToJsonArray } = require('../utils/fileUtil');
+const { readJsonFile, appendToJsonArray, updateJsonArrayItem } = require('../utils/fileUtil');
 const { getOrCreateGuestUser } = require('./user');
+const { extractTagsByGPT } = require('../utils/gptTagExtractor');
 const crypto = require('crypto');
 
 /**
@@ -529,11 +530,29 @@ router.post('/parse', async (req, res) => {
         console.log(`[小红书解析] 最终提取地点: ${uniquePlaces.join(', ')}`);
       }
 
+      // 步骤6：使用大模型提取标签（从正文中提取景点/地点标签）
+      let tags = [];
+      if (contentText && contentText !== '无法获取笔记正文' && contentText !== '未获取到笔记内容') {
+        try {
+          console.log('[小红书解析] 开始使用大模型提取标签...');
+          tags = await extractTagsByGPT(contentText);
+          console.log(`[小红书解析] 大模型提取到标签: ${tags.join(', ')}`);
+        } catch (tagError) {
+          console.error('[小红书解析] 大模型标签提取失败:', tagError.message);
+          // 如果大模型提取失败，使用原有的地点列表作为标签
+          tags = uniquePlaces;
+        }
+      } else {
+        // 如果没有正文，使用原有的地点列表作为标签
+        tags = uniquePlaces;
+      }
+
       // 优化：提升错误处理，提供更详细的日志和错误提示
       const result = {
         title: title || '未获取到标题',
         content: contentText || '未获取到笔记内容',
-        places: uniquePlaces
+        places: uniquePlaces,
+        tags: tags // 新增：大模型提取的标签
       };
       
       // 验证解析结果质量
@@ -602,7 +621,7 @@ router.post('/parse', async (req, res) => {
  */
 router.post('/save', async (req, res) => {
   try {
-    const { url, title, content, places } = req.body;
+    const { url, title, content, places, tags } = req.body;
     const userId = getUserId(req); // 支持userId和guestId
 
     if (!userId || !url) {
@@ -619,6 +638,8 @@ router.post('/save', async (req, res) => {
     }
 
     const collectionId = crypto.randomBytes(8).toString('hex');
+    // 优先使用tags，如果没有则使用places
+    const finalTags = Array.isArray(tags) && tags.length > 0 ? tags : (Array.isArray(places) ? places : []);
     const collection = {
       collectionId,
       userId,
@@ -626,6 +647,7 @@ router.post('/save', async (req, res) => {
       title: title || '未命名收藏',
       content: content || '',
       places: Array.isArray(places) ? places : [],
+      tags: finalTags, // 新增：大模型提取的标签
       createdAt: new Date().toISOString()
     };
 
@@ -685,6 +707,179 @@ router.get('/list', async (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '获取失败'
+    });
+  }
+});
+
+/**
+ * 添加标签
+ * POST /api/collection/:id/tags
+ * Body: { tag }
+ */
+router.post('/:id/tags', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tag } = req.body;
+
+    if (!tag || typeof tag !== 'string' || tag.trim().length === 0) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '标签不能为空'
+      });
+    }
+
+    const trimmedTag = tag.trim();
+
+    // 验证标签长度
+    if (trimmedTag.length > 20) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '标签长度不能超过20个字符'
+      });
+    }
+
+    // 读取收藏列表
+    const collections = await readJsonFile('collections.json');
+    const collection = collections.find(c => c.collectionId === id);
+
+    if (!collection) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '收藏项不存在'
+      });
+    }
+
+    // 获取当前标签列表（优先使用tags，如果没有则使用places）
+    const currentTags = Array.isArray(collection.tags) && collection.tags.length > 0
+      ? collection.tags
+      : (Array.isArray(collection.places) ? collection.places : []);
+
+    // 检查是否重复
+    if (currentTags.includes(trimmedTag)) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '该标签已存在'
+      });
+    }
+
+    // 添加标签
+    const updatedTags = [...currentTags, trimmedTag];
+
+    // 更新收藏项
+    const updateSuccess = await updateJsonArrayItem(
+      'collections.json',
+      'collectionId',
+      id,
+      { tags: updatedTags }
+    );
+
+    if (!updateSuccess) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '更新失败'
+      });
+    }
+
+    res.json({
+      code: 0,
+      data: {
+        tags: updatedTags
+      },
+      msg: '标签添加成功'
+    });
+  } catch (error) {
+    console.error('添加标签错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '添加标签失败'
+    });
+  }
+});
+
+/**
+ * 删除标签
+ * DELETE /api/collection/:id/tags
+ * Body: { tag }
+ */
+router.delete('/:id/tags', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { tag } = req.body;
+
+    if (!tag || typeof tag !== 'string' || tag.trim().length === 0) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '标签不能为空'
+      });
+    }
+
+    const trimmedTag = tag.trim();
+
+    // 读取收藏列表
+    const collections = await readJsonFile('collections.json');
+    const collection = collections.find(c => c.collectionId === id);
+
+    if (!collection) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '收藏项不存在'
+      });
+    }
+
+    // 获取当前标签列表（优先使用tags，如果没有则使用places）
+    const currentTags = Array.isArray(collection.tags) && collection.tags.length > 0
+      ? collection.tags
+      : (Array.isArray(collection.places) ? collection.places : []);
+
+    // 检查标签是否存在
+    if (!currentTags.includes(trimmedTag)) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '标签不存在'
+      });
+    }
+
+    // 删除标签
+    const updatedTags = currentTags.filter(t => t !== trimmedTag);
+
+    // 更新收藏项
+    const updateSuccess = await updateJsonArrayItem(
+      'collections.json',
+      'collectionId',
+      id,
+      { tags: updatedTags }
+    );
+
+    if (!updateSuccess) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '更新失败'
+      });
+    }
+
+    res.json({
+      code: 0,
+      data: {
+        tags: updatedTags
+      },
+      msg: '标签删除成功'
+    });
+  } catch (error) {
+    console.error('删除标签错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '删除标签失败'
     });
   }
 });

@@ -83,6 +83,34 @@ function post(url, body = {}, options = {}) {
 }
 
 /**
+ * DELETE 请求
+ */
+function deleteRequest(url, body = {}, options = {}) {
+  return request(url, { method: 'DELETE', body, ...options });
+}
+
+/**
+ * 直接调用fetch（用于需要获取完整响应的情况）
+ */
+async function fetchRaw(url, options = {}) {
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE}${url}`;
+  const config = {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  };
+
+  if (options.body && config.method !== 'GET') {
+    config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+  }
+
+  const response = await fetch(fullUrl, config);
+  return response.json();
+}
+
+/**
  * 显示加载遮罩
  */
 function showLoadingOverlay() {
@@ -124,8 +152,11 @@ window.api = {
   request,
   get,
   post,
+  delete: deleteRequest,
+  fetchRaw,
   showLoadingOverlay,
   hideLoadingOverlay,
-  showToast
+  showToast,
+  API_BASE // 导出API_BASE供其他模块使用
 };
 

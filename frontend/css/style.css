@@ -429,6 +429,97 @@ body {
   font-size: 0.875rem;
 }
 
+/* 标签管理区域 */
+.collection-tag-group {
+  margin: 8px 0;
+}
+
+.collection-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 8px;
+}
+
+/* 标签项（包含标签+删除按钮） */
+.tag-item {
+  display: inline-flex;
+  align-items: center;
+  background: #e8f4ff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+  color: #1976d2;
+}
+
+/* 删除按钮 */
+.tag-delete-btn {
+  border: none;
+  background: transparent;
+  color: #666;
+  margin-left: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+
+.tag-delete-btn:hover {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.1);
+}
+
+/* 添加标签的控件样式 */
+.tag-add-group {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tag-add-input {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  width: 120px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.tag-add-input:focus {
+  border-color: #0088ff;
+}
+
+.tag-add-btn {
+  border: none;
+  background: #0088ff;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.tag-add-btn:hover {
+  background: #0077e6;
+}
+
+.tag-add-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
 .collapse-btn {
   border: none;
   background: #f0f0f0;

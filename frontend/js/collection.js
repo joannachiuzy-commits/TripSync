@@ -20,11 +20,14 @@ async function parseXiaohongshuUrl() {
     const data = await window.api.post('/collection/parse', { url });
     
     // 保存解析结果
+    // 优先使用大模型提取的tags，如果没有则使用places
+    const tags = data.tags || data.places || [];
     currentParseData = {
       url,
       title: data.title || '未获取到标题',
       content: data.content || '',
-      places: data.places || []
+      places: data.places || [],
+      tags: tags // 新增：大模型提取的标签
     };
 
     // 显示解析结果
@@ -32,11 +35,14 @@ async function parseXiaohongshuUrl() {
     document.getElementById('parseContent').textContent = 
       currentParseData.content || '未获取到内容';
     
-    // 显示地点标签
+    // 显示地点标签（优先使用tags，如果没有则使用places）
+    const tagsToShow = currentParseData.tags && currentParseData.tags.length > 0 
+      ? currentParseData.tags 
+      : currentParseData.places;
     const placesContainer = document.getElementById('parsePlaces');
-    if (currentParseData.places.length > 0) {
-      placesContainer.innerHTML = currentParseData.places
-        .map(place => `<span class="place-tag">${place}</span>`)
+    if (tagsToShow.length > 0) {
+      placesContainer.innerHTML = tagsToShow
+        .map(tag => `<span class="place-tag">${tag}</span>`)
         .join('');
     } else {
       placesContainer.innerHTML = '<span class="empty-tip">未提取到地点</span>';
@@ -51,7 +57,8 @@ async function parseXiaohongshuUrl() {
         url,
         title: '',
         content: '',
-        places: []
+        places: [],
+        tags: []
       };
       document.getElementById('parseTitle').textContent = '';
       document.getElementById('parseContent').textContent = '';
@@ -99,7 +106,8 @@ async function saveCollection() {
       url: currentParseData.url,
       title,
       content: currentParseData.content,
-      places: currentParseData.places
+      places: currentParseData.places,
+      tags: currentParseData.tags || currentParseData.places // 保存标签（优先使用tags）
     });
 
     window.api.showToast('收藏成功', 'success');
@@ -149,8 +157,12 @@ async function loadCollections() {
       // URL不需要转义，但需要验证和清理
       const url = (collection.url || '').trim();
       const content = escapeHtml(collection.content || '暂无笔记正文');
-      const places = collection.places && collection.places.length > 0 
-        ? collection.places.map(place => `<span class="location-tag">${escapeHtml(place)}</span>`).join('')
+      // 优先使用tags，如果没有则使用places
+      const tagsToShow = (collection.tags && collection.tags.length > 0) 
+        ? collection.tags 
+        : (collection.places || []);
+      const places = tagsToShow.length > 0
+        ? tagsToShow.map(tag => `<span class="location-tag">${escapeHtml(tag)}</span>`).join('')
         : '';
       
       return `
@@ -167,11 +179,22 @@ async function loadCollections() {
           <!-- 展开状态：显示完整详情 -->
           <div class="collection-detail" style="display: none;">
             <p class="collection-content">${content}</p>
-            ${places ? `
-              <div class="collection-locations">
-                ${places}
+            <!-- 标签区域（带删除按钮和添加控件） -->
+            <div class="collection-tag-group">
+              <div class="collection-tags">
+                ${tagsToShow.length > 0 ? tagsToShow.map(tag => `
+                  <span class="tag-item">
+                    ${escapeHtml(tag)}
+                    <button class="tag-delete-btn" data-tag="${escapeHtml(tag)}" title="删除标签">×</button>
+                  </span>
+                `).join('') : '<span class="empty-tip">暂无标签</span>'}
               </div>
-            ` : ''}
+              <!-- 添加标签的控件 -->
+              <div class="tag-add-group">
+                <input type="text" class="tag-add-input" placeholder="输入新标签" maxlength="20">
+                <button class="tag-add-btn">添加</button>
+              </div>
+            </div>
             <button class="collapse-btn">收起详情</button>
           </div>
         </div>
@@ -181,8 +204,18 @@ async function loadCollections() {
     // 添加交互逻辑：点击收藏项展开/收起详情
     document.querySelectorAll('.collection-item.clickable').forEach(item => {
       item.addEventListener('click', (e) => {
-        // 避免点击链接/按钮时触发展开（阻止事件冒泡）
-        if (e.target.matches('.collection-link, .collapse-btn')) return;
+        // 新增：排除标签相关操作元素（删除按钮、添加按钮、输入框）
+        // 避免点击这些元素时触发展开/折叠
+        if (e.target.matches(
+          '.collection-link, .collapse-btn, .tag-delete-btn, .tag-add-btn, .tag-add-input'
+        )) {
+          return; // 点击这些元素时，不执行展开/折叠
+        }
+        
+        // 检查是否点击在标签相关元素内部（通过closest检查）
+        if (e.target.closest('.tag-item, .tag-add-group, .collection-tag-group')) {
+          return; // 点击标签相关区域时，不执行展开/折叠
+        }
         
         const detail = item.querySelector('.collection-detail');
         if (detail) {
@@ -202,6 +235,9 @@ async function loadCollections() {
       });
     });
 
+    // 添加标签删除和添加的交互逻辑
+    setupTagManagement();
+
     // 更新生成行程页面的收藏复选框
     updateCollectionCheckboxes(collections);
   } catch (error) {
@@ -220,21 +256,27 @@ function updateCollectionCheckboxes(collections) {
     return;
   }
 
-  container.innerHTML = collections.map(collection => `
+  container.innerHTML = collections.map(collection => {
+    // 优先使用tags，如果没有则使用places
+    const tagsToShow = (collection.tags && collection.tags.length > 0) 
+      ? collection.tags 
+      : (collection.places || []);
+    return `
     <div class="checkbox-item">
       <label>
         <input type="checkbox" value="${collection.collectionId}" data-collection='${JSON.stringify(collection)}'>
         <div>
           <div style="font-weight: 600;">${collection.title}</div>
-          ${collection.places && collection.places.length > 0 ? `
+          ${tagsToShow.length > 0 ? `
             <div class="collection-places" style="margin-top: 0.25rem;">
-              ${collection.places.slice(0, 5).map(place => `<span class="place-tag">${place}</span>`).join('')}
+              ${tagsToShow.slice(0, 5).map(tag => `<span class="place-tag">${tag}</span>`).join('')}
             </div>
           ` : ''}
         </div>
       </label>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 /**
@@ -286,6 +328,172 @@ function handleXiaohongshuUrlPaste(e) {
     // 静默处理，不显示错误提示（避免干扰用户手动输入）
     console.log('未检测到小红书链接格式，保留原始粘贴内容');
   }
+}
+
+/**
+ * 设置标签管理功能（删除标签、添加标签）
+ */
+function setupTagManagement() {
+  // 监听标签输入框的focus事件，阻止冒泡（防止输入框聚焦时误触展开/折叠）
+  document.addEventListener('focus', (e) => {
+    if (e.target.matches('.tag-add-input')) {
+      e.stopPropagation();
+    }
+  }, true); // 注意：这里需要传true启用捕获阶段监听
+
+  // 1. 监听"删除标签"按钮点击
+  document.addEventListener('click', async (e) => {
+    if (e.target.matches('.tag-delete-btn')) {
+      e.stopPropagation(); // 阻止事件冒泡，避免触发展开/收起
+      
+      const deleteBtn = e.target;
+      const tag = deleteBtn.dataset.tag;
+      const tagItem = deleteBtn.closest('.tag-item');
+      const collectionItem = tagItem.closest('.collection-item');
+      const collectionId = collectionItem.dataset.collectionId;
+
+      if (!collectionId) {
+        window.api.showToast('无法获取收藏项ID', 'error');
+        return;
+      }
+
+      // 1. 前端先移除标签
+      const originalDisplay = tagItem.style.display;
+      tagItem.style.display = 'none';
+
+      // 2. 调用后端API同步删除
+      try {
+        const responseData = await window.api.fetchRaw(`/collection/${collectionId}/tags`, {
+          method: 'DELETE',
+          body: { tag }
+        });
+        
+        if (responseData.code === 0) {
+          // 删除成功，移除DOM元素
+          tagItem.remove();
+          
+          // 如果标签列表为空，显示提示
+          const tagsContainer = collectionItem.querySelector('.collection-tags');
+          if (tagsContainer && tagsContainer.querySelectorAll('.tag-item').length === 0) {
+            tagsContainer.innerHTML = '<span class="empty-tip">暂无标签</span>';
+          }
+          
+          window.api.showToast('标签删除成功', 'success');
+        } else {
+          // 删除失败，恢复显示
+          tagItem.style.display = originalDisplay || '';
+          window.api.showToast(responseData.msg || '标签删除失败', 'error');
+        }
+      } catch (error) {
+        // 删除失败，恢复显示
+        tagItem.style.display = originalDisplay || '';
+        window.api.showToast('标签删除失败，请重试', 'error');
+      }
+    }
+  });
+
+  // 2. 监听"添加标签"按钮点击
+  document.addEventListener('click', async (e) => {
+    if (e.target.matches('.tag-add-btn')) {
+      e.stopPropagation(); // 阻止事件冒泡
+      
+      const addBtn = e.target;
+      const input = addBtn.previousElementSibling;
+      const newTag = input.value.trim();
+      const collectionItem = addBtn.closest('.collection-item');
+      const collectionId = collectionItem.dataset.collectionId;
+      const tagsContainer = collectionItem.querySelector('.collection-tags');
+
+      if (!collectionId) {
+        window.api.showToast('无法获取收藏项ID', 'error');
+        return;
+      }
+
+      // 验证：标签非空
+      if (!newTag) {
+        window.api.showToast('请输入标签内容', 'error');
+        return;
+      }
+
+      // 验证：标签长度
+      if (newTag.length > 20) {
+        window.api.showToast('标签长度不能超过20个字符', 'error');
+        return;
+      }
+
+      // 验证：不重复
+      const existingTags = Array.from(tagsContainer.querySelectorAll('.tag-item'))
+        .map(item => {
+          const deleteBtn = item.querySelector('.tag-delete-btn');
+          return deleteBtn ? deleteBtn.dataset.tag : item.textContent.trim().replace('×', '').trim();
+        })
+        .filter(tag => tag && tag !== '暂无标签');
+      
+      if (existingTags.includes(newTag)) {
+        window.api.showToast('该标签已存在', 'error');
+        input.value = '';
+        return;
+      }
+
+      // 转义HTML，防止XSS攻击
+      const escapeHtml = (text) => {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      };
+
+      // 1. 前端先添加标签
+      // 移除"暂无标签"提示
+      const emptyTip = tagsContainer.querySelector('.empty-tip');
+      if (emptyTip) {
+        emptyTip.remove();
+      }
+
+      const newTagItem = document.createElement('span');
+      newTagItem.className = 'tag-item';
+      newTagItem.innerHTML = `${escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${escapeHtml(newTag)}" title="删除标签">×</button>`;
+      tagsContainer.appendChild(newTagItem);
+      input.value = '';
+
+      // 2. 调用后端API同步添加
+      try {
+        const responseData = await window.api.fetchRaw(`/collection/${collectionId}/tags`, {
+          method: 'POST',
+          body: { tag: newTag }
+        });
+        
+        if (responseData.code === 0) {
+          window.api.showToast('标签添加成功', 'success');
+        } else {
+          // 添加失败，回滚
+          newTagItem.remove();
+          if (tagsContainer.querySelectorAll('.tag-item').length === 0) {
+            tagsContainer.innerHTML = '<span class="empty-tip">暂无标签</span>';
+          }
+          window.api.showToast(responseData.msg || '标签添加失败', 'error');
+        }
+      } catch (error) {
+        // 添加失败，回滚
+        newTagItem.remove();
+        if (tagsContainer.querySelectorAll('.tag-item').length === 0) {
+          tagsContainer.innerHTML = '<span class="empty-tip">暂无标签</span>';
+        }
+        window.api.showToast('标签添加失败，请重试', 'error');
+      }
+    }
+  });
+
+  // 3. 监听标签输入框的回车键
+  document.addEventListener('keypress', (e) => {
+    if (e.target.matches('.tag-add-input') && e.key === 'Enter') {
+      e.preventDefault();
+      const addBtn = e.target.nextElementSibling;
+      if (addBtn && addBtn.matches('.tag-add-btn')) {
+        addBtn.click();
+      }
+    }
+  });
 }
 
 /**
