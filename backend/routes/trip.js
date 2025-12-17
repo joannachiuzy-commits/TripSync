@@ -56,12 +56,15 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    // 调用 GPT 生成行程
-    let itinerary;
+    // 获取前端传递的模型类型（gpt/qwen/auto），默认为 auto
+    const modelType = req.body.modelType || 'auto';
+    
+    // 调用 AI 模型生成行程
+    let result;
     try {
-      console.log('[行程生成] 开始生成行程，收藏数量:', selectedCollections.length, '天数:', days);
-      itinerary = await generateItinerary(selectedCollections, days, budget);
-      console.log('[行程生成] 行程生成成功，天数:', itinerary.length);
+      console.log('[行程生成] 开始生成行程，收藏数量:', selectedCollections.length, '天数:', days, '模型类型:', modelType);
+      result = await generateItinerary(selectedCollections, days, budget, modelType);
+      console.log('[行程生成] 行程生成成功，天数:', result.itinerary.length, '使用模型:', result.modelName);
     } catch (gptError) {
       console.error('[行程生成] AI 生成失败:', gptError.message);
       
@@ -95,7 +98,9 @@ router.post('/generate', async (req, res) => {
       collectionIds,
       days,
       budget: budget || '不限',
-      itinerary,
+      itinerary: result.itinerary,
+      model: result.model,
+      modelName: result.modelName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -106,9 +111,11 @@ router.post('/generate', async (req, res) => {
       code: 0,
       data: {
         tripId,
-        itinerary
+        itinerary: result.itinerary,
+        model: result.model,
+        modelName: result.modelName
       },
-      msg: '生成成功'
+      msg: `生成成功（使用 ${result.modelName}）`
     });
   } catch (error) {
     console.error('生成错误:', error);

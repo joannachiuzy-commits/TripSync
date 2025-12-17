@@ -58,11 +58,16 @@ async function generateTrip() {
       return;
     }
 
+    // 获取用户选择的模型类型
+    const modelTypeSelect = document.getElementById('modelTypeSelect');
+    const modelType = modelTypeSelect ? modelTypeSelect.value : 'auto';
+
     const data = await window.api.post('/trip/generate', {
       userId: user.userId,
       collectionIds: selectedCollections.map(c => c.collectionId),
       days,
-      budget
+      budget,
+      modelType // 传递模型类型参数
     });
 
     currentTripId = data.tripId;
@@ -74,7 +79,9 @@ async function generateTrip() {
     if (generateResult) {
       generateResult.style.display = 'block';
     }
-    window.api.showToast('行程生成成功', 'success');
+    // 显示生成成功提示，包含使用的模型信息
+    const modelName = data.modelName || 'AI';
+    window.api.showToast(`行程生成成功（使用 ${modelName}）`, 'success');
 
     // 刷新行程列表（编辑页面和分享页面）
     setTimeout(() => {
