@@ -241,13 +241,27 @@ async function callAIModel(prompt, modelType = 'auto') {
  * @param {number} days 行程天数
  * @param {string} budget 预算描述
  * @param {string} modelType 模型类型：'gpt' | 'qwen' | 'auto'，默认 'auto'
+ * @param {string} preference 行程偏好/特殊要求
  * @returns {Promise<Array>} 生成的行程数组
  */
-async function generateItinerary(collections, days, budget, modelType = 'auto') {
+async function generateItinerary(collections, days, budget, modelType = 'auto', preference = '') {
   // 构建提示词
   const placesInfo = collections
     .map(c => `标题：${c.title}\n内容：${c.content}\n地点：${c.places?.join('、') || '未提取'}`)
     .join('\n\n---\n\n');
+
+  // 构建基础要求
+  let requirements = `要求：
+1. 行程要合理，考虑地点之间的距离和交通时间
+2. 每天安排3-5个地点，不要太紧凑
+3. 包含用餐时间、休息时间
+4. 给出每个地点的简短描述（1-2句话）
+5. 按照时间顺序排列`;
+
+  // 如果有偏好要求，添加到要求中
+  if (preference && preference.trim()) {
+    requirements += `\n6. 额外要求：${preference.trim()}（请优先适配这些偏好）`;
+  }
 
   const prompt = `你是一个专业的旅行规划师。请根据以下小红书内容，生成一份详细的${days}天行程规划。
 
@@ -256,12 +270,7 @@ ${placesInfo}
 
 预算：${budget || '不限'}
 
-要求：
-1. 行程要合理，考虑地点之间的距离和交通时间
-2. 每天安排3-5个地点，不要太紧凑
-3. 包含用餐时间、休息时间
-4. 给出每个地点的简短描述（1-2句话）
-5. 按照时间顺序排列
+${requirements}
 
 请以 JSON 格式返回，格式如下：
 [

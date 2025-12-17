@@ -59,11 +59,14 @@ router.post('/generate', async (req, res) => {
     // 获取前端传递的模型类型（gpt/qwen/auto），默认为 auto
     const modelType = req.body.modelType || 'auto';
     
+    // 获取前端传递的行程偏好
+    const preference = req.body.preference || '';
+    
     // 调用 AI 模型生成行程
     let result;
     try {
-      console.log('[行程生成] 开始生成行程，收藏数量:', selectedCollections.length, '天数:', days, '模型类型:', modelType);
-      result = await generateItinerary(selectedCollections, days, budget, modelType);
+      console.log('[行程生成] 开始生成行程，收藏数量:', selectedCollections.length, '天数:', days, '模型类型:', modelType, '偏好:', preference || '无');
+      result = await generateItinerary(selectedCollections, days, budget, modelType, preference);
       console.log('[行程生成] 行程生成成功，天数:', result.itinerary.length, '使用模型:', result.modelName);
     } catch (gptError) {
       console.error('[行程生成] AI 生成失败:', gptError.message);
@@ -98,6 +101,7 @@ router.post('/generate', async (req, res) => {
       collectionIds,
       days,
       budget: budget || '不限',
+      preference: preference || '', // 保存偏好信息
       itinerary: result.itinerary,
       model: result.model,
       modelName: result.modelName,

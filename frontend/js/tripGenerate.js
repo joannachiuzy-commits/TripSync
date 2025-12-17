@@ -62,12 +62,17 @@ async function generateTrip() {
     const modelTypeSelect = document.getElementById('modelTypeSelect');
     const modelType = modelTypeSelect ? modelTypeSelect.value : 'auto';
 
+    // 获取行程偏好
+    const preferenceInput = document.getElementById('preferenceInput');
+    const preference = preferenceInput ? preferenceInput.value.trim() : '';
+
     const data = await window.api.post('/trip/generate', {
       userId: user.userId,
       collectionIds: selectedCollections.map(c => c.collectionId),
       days,
       budget,
-      modelType // 传递模型类型参数
+      modelType, // 传递模型类型参数
+      preference // 传递偏好参数
     });
 
     currentTripId = data.tripId;
@@ -136,6 +141,75 @@ function displayItinerary(itinerary) {
 let isTripGenerateInitialized = false;
 
 /**
+ * 初始化行程偏好模块交互逻辑
+ */
+function initPreferenceModule() {
+  const preferenceTags = document.querySelectorAll('.preference-tag');
+  const preferenceInput = document.getElementById('preferenceInput');
+  const clearBtn = document.getElementById('clearPreferenceBtn');
+  const agentTip = document.getElementById('agentTip');
+
+  if (!preferenceInput || !clearBtn || !agentTip) {
+    console.warn('⚠️  行程偏好模块元素未找到，跳过初始化');
+    return;
+  }
+
+  // 1. 快捷标签点击逻辑
+  preferenceTags.forEach(tag => {
+    tag.addEventListener('click', () => {
+      tag.classList.toggle('active');
+      
+      // 获取所有激活的标签文本
+      const activeTags = Array.from(preferenceTags)
+        .filter(t => t.classList.contains('active'))
+        .map(t => t.dataset.text);
+      
+      // 获取当前输入框内容（去除已存在的标签文本）
+      let currentValue = preferenceInput.value.trim();
+      
+      // 如果输入框为空，直接填充激活的标签
+      if (!currentValue) {
+        preferenceInput.value = activeTags.join('，');
+      } else {
+        // 如果输入框有内容，检查是否需要添加新标签
+        const currentTags = currentValue.split('，').map(t => t.trim());
+        activeTags.forEach(tagText => {
+          if (!currentTags.includes(tagText)) {
+            currentValue += '，' + tagText;
+          }
+        });
+        preferenceInput.value = currentValue;
+      }
+      
+      // 显示Agent反馈提示
+      agentTip.style.display = 'block';
+      setTimeout(() => {
+        agentTip.style.display = 'none';
+      }, 3000);
+    });
+  });
+
+  // 2. 清空按钮逻辑
+  clearBtn.addEventListener('click', () => {
+    preferenceInput.value = '';
+    preferenceTags.forEach(tag => tag.classList.remove('active'));
+  });
+
+  // 3. 输入框输入时，如果内容变化，自动取消相关标签的激活状态
+  preferenceInput.addEventListener('input', () => {
+    const inputValue = preferenceInput.value.trim();
+    preferenceTags.forEach(tag => {
+      const tagText = tag.dataset.text;
+      if (!inputValue.includes(tagText)) {
+        tag.classList.remove('active');
+      }
+    });
+  });
+
+  console.log('✅ 行程偏好模块交互逻辑初始化成功');
+}
+
+/**
  * 初始化行程生成模块
  */
 function initTripGenerate() {
@@ -164,6 +238,9 @@ function initTripGenerate() {
     // 绑定点击事件（先移除可能存在的旧监听器，避免重复绑定）
     generateBtn.removeEventListener('click', generateTrip);
     generateBtn.addEventListener('click', generateTrip);
+    
+    // 初始化偏好模块交互逻辑
+    initPreferenceModule();
     
     isTripGenerateInitialized = true;
     console.log('✅ 行程生成按钮点击事件绑定成功');

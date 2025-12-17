@@ -196,6 +196,35 @@
             </small>
           </div>
           
+          <!-- 行程偏好补充模块 -->
+          <div class="preference-module">
+            <h3 class="preference-title">告诉AI你的行程偏好</h3>
+            <p class="preference-desc">比如"第一天下午到""不希望早起"，AI会精准适配</p>
+            
+            <!-- 输入框+清空按钮 -->
+            <div class="input-wrapper">
+              <textarea 
+                id="preferenceInput"
+                class="preference-input" 
+                placeholder="请输入你的行程偏好/特殊要求（如时间、作息、忌口等）"
+                rows="3"
+              ></textarea>
+              <button id="clearPreferenceBtn" class="clear-btn">清空</button>
+            </div>
+            
+            <!-- 快捷偏好标签 -->
+            <div class="tag-group">
+              <span class="preference-tag" data-text="不希望早起">不希望早起</span>
+              <span class="preference-tag" data-text="第一天下午到">第一天下午到</span>
+              <span class="preference-tag" data-text="最后一天午饭后走">最后一天午饭后走</span>
+              <span class="preference-tag" data-text="避开拥挤景点">避开拥挤景点</span>
+              <span class="preference-tag" data-text="偏好美食打卡">偏好美食打卡</span>
+            </div>
+            
+            <!-- Agent反馈提示（默认隐藏） -->
+            <div id="agentTip" class="agent-tip" style="display: none;">✅ 已收到你的偏好，生成行程时会优先适配</div>
+          </div>
+          
           <button id="generateTripBtn" class="btn btn-primary btn-large">生成行程</button>
         </div>
 
