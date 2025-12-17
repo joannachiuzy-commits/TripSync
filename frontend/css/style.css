@@ -384,6 +384,29 @@ body {
   margin-right: 1rem;
 }
 
+/* 收藏笔记操作区布局 */
+.note-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 删除按钮样式（红色突出，提示风险） */
+.delete-note-btn {
+  border: none;
+  background-color: #ff4d4f;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.delete-note-btn:hover {
+  background-color: #ff7875;
+}
+
 .collection-link {
   color: #0088ff;
   text-decoration: none;

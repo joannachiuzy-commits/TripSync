@@ -5,6 +5,9 @@
 
 let currentParseData = null;
 
+// 存储解析结果的临时标签（初始值为解析出的地点）
+let tempParseTags = [];
+
 /**
  * 解析小红书链接
  */
@@ -35,18 +38,11 @@ async function parseXiaohongshuUrl() {
     document.getElementById('parseContent').textContent = 
       currentParseData.content || '未获取到内容';
     
-    // 显示地点标签（优先使用tags，如果没有则使用places）
+    // 初始化解析结果的标签（优先使用tags，如果没有则使用places）
     const tagsToShow = currentParseData.tags && currentParseData.tags.length > 0 
       ? currentParseData.tags 
       : currentParseData.places;
-    const placesContainer = document.getElementById('parsePlaces');
-    if (tagsToShow.length > 0) {
-      placesContainer.innerHTML = tagsToShow
-        .map(tag => `<span class="place-tag">${tag}</span>`)
-        .join('');
-    } else {
-      placesContainer.innerHTML = '<span class="empty-tip">未提取到地点</span>';
-    }
+    initParseResultTags(tagsToShow);
 
     document.getElementById('parseResult').style.display = 'block';
   } catch (error) {
@@ -62,9 +58,39 @@ async function parseXiaohongshuUrl() {
       };
       document.getElementById('parseTitle').textContent = '';
       document.getElementById('parseContent').textContent = '';
-      document.getElementById('parsePlaces').innerHTML = '<span class="empty-tip">请手动输入标题和地点</span>';
+      initParseResultTags([]);
       document.getElementById('parseResult').style.display = 'block';
     }
+  }
+}
+
+/**
+ * 初始化解析结果的标签（页面加载后调用）
+ */
+function initParseResultTags(initialTags) {
+  tempParseTags = [...initialTags];
+  const tagsContainer = document.getElementById('parseResultTags');
+  if (!tagsContainer) return;
+  
+  tagsContainer.innerHTML = ''; // 清空原有内容
+  
+  // 渲染标签项
+  if (tempParseTags.length > 0) {
+    tempParseTags.forEach(tag => {
+      const tagItem = document.createElement('span');
+      tagItem.className = 'tag-item';
+      // 转义HTML，防止XSS攻击
+      const escapeHtml = (text) => {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      };
+      tagItem.innerHTML = `${escapeHtml(tag)} <button class="tag-delete-btn" data-tag="${escapeHtml(tag)}" title="删除标签">×</button>`;
+      tagsContainer.appendChild(tagItem);
+    });
+  } else {
+    tagsContainer.innerHTML = '<span class="empty-tip">暂无标签</span>';
   }
 }
 
@@ -101,13 +127,16 @@ async function saveCollection() {
   }
 
   try {
+    // 获取编辑后的临时标签
+    const tags = tempParseTags;
+    
     await window.api.post('/collection/save', {
       userId: user.userId,
       url: currentParseData.url,
       title,
       content: currentParseData.content,
       places: currentParseData.places,
-      tags: currentParseData.tags || currentParseData.places // 保存标签（优先使用tags）
+      tags: tags // 传递编辑后的标签
     });
 
     window.api.showToast('收藏成功', 'success');
@@ -116,6 +145,7 @@ async function saveCollection() {
     document.getElementById('xiaohongshuUrl').value = '';
     document.getElementById('parseResult').style.display = 'none';
     currentParseData = null;
+    tempParseTags = []; // 清空临时标签
 
     // 刷新收藏列表
     loadCollections();
@@ -166,15 +196,18 @@ async function loadCollections() {
         : '';
       
       return `
-        <div class="collection-item clickable" data-collection-id="${collection.collectionId}">
+        <div class="collection-item clickable" data-collection-id="${collection.collectionId}" data-note-id="${collection.collectionId}">
           <!-- 收起状态：仅显示标题+链接 -->
           <div class="collection-header">
-            <h4 class="collection-title">${title}</h4>
-            ${url ? `
-              <a href="${url}" target="_blank" class="collection-link" title="打开原笔记" rel="noopener noreferrer">
-                查看原笔记
-              </a>
-            ` : ''}
+            <h4 class="collection-title note-title">${title}</h4>
+            <div class="note-actions">
+              ${url ? `
+                <a href="${url}" target="_blank" class="collection-link" title="打开原笔记" rel="noopener noreferrer">
+                  查看原笔记
+                </a>
+              ` : ''}
+              <button class="delete-note-btn" type="button">删除</button>
+            </div>
           </div>
           <!-- 展开状态：显示完整详情 -->
           <div class="collection-detail" style="display: none;">
@@ -207,13 +240,13 @@ async function loadCollections() {
         // 新增：排除标签相关操作元素（删除按钮、添加按钮、输入框）
         // 避免点击这些元素时触发展开/折叠
         if (e.target.matches(
-          '.collection-link, .collapse-btn, .tag-delete-btn, .tag-add-btn, .tag-add-input'
+          '.collection-link, .collapse-btn, .tag-delete-btn, .tag-add-btn, .tag-add-input, .delete-note-btn'
         )) {
           return; // 点击这些元素时，不执行展开/折叠
         }
         
         // 检查是否点击在标签相关元素内部（通过closest检查）
-        if (e.target.closest('.tag-item, .tag-add-group, .collection-tag-group')) {
+        if (e.target.closest('.tag-item, .tag-add-group, .collection-tag-group, .note-actions')) {
           return; // 点击标签相关区域时，不执行展开/折叠
         }
         
@@ -237,6 +270,9 @@ async function loadCollections() {
 
     // 添加标签删除和添加的交互逻辑
     setupTagManagement();
+
+    // 添加收藏笔记删除的交互逻辑
+    setupCollectionDelete();
 
     // 更新生成行程页面的收藏复选框
     updateCollectionCheckboxes(collections);
@@ -497,6 +533,174 @@ function setupTagManagement() {
 }
 
 /**
+ * 设置收藏笔记删除功能
+ */
+function setupCollectionDelete() {
+  // 监听所有删除按钮的点击事件
+  document.addEventListener('click', async (e) => {
+    // 仅匹配收藏笔记的删除按钮
+    if (e.target.matches('.delete-note-btn')) {
+      e.stopPropagation(); // 阻止事件冒泡，避免触发展开/折叠
+      
+      const deleteBtn = e.target;
+      const noteItem = deleteBtn.closest('.collection-item');
+      const noteId = noteItem.dataset.noteId; // 获取笔记ID
+      const noteTitleElement = noteItem.querySelector('.note-title');
+      const noteTitle = noteTitleElement ? noteTitleElement.textContent : '该笔记';
+
+      if (!noteId) {
+        window.api.showToast('无法获取笔记ID', 'error');
+        return;
+      }
+
+      // 步骤1：弹出确认弹窗（防止误删）
+      const isConfirm = confirm(`确定要删除笔记「${noteTitle}」吗？删除后无法恢复哦~`);
+      if (!isConfirm) return; // 用户取消则终止
+
+      // 步骤2：调用后端删除接口
+      try {
+        const user = window.userModule.getCurrentUser();
+        if (!user) {
+          window.api.showToast('请先登录', 'error');
+          return;
+        }
+
+        // 将userId作为query参数传递
+        const userId = user.userId || user.guestId;
+        const url = `/collection/${noteId}?userId=${encodeURIComponent(userId)}`;
+        
+        const responseData = await window.api.fetchRaw(url, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (responseData.code === 0) {
+          // 步骤3：删除成功，移除页面上的笔记条目
+          noteItem.remove();
+          
+          // 如果收藏列表为空，显示提示
+          const container = document.getElementById('collectionsList');
+          if (container && container.querySelectorAll('.collection-item').length === 0) {
+            container.innerHTML = '<p class="empty-tip">暂无收藏，请先解析并收藏小红书链接</p>';
+          }
+
+          window.api.showToast('笔记删除成功', 'success');
+          
+          // 刷新生成行程页面的收藏复选框
+          const user = window.userModule.getCurrentUser();
+          if (user) {
+            try {
+              const data = await window.api.get('/collection/list', { userId: user.userId });
+              updateCollectionCheckboxes(data.collections || []);
+            } catch (error) {
+              // 忽略刷新复选框的错误
+            }
+          }
+        } else {
+          window.api.showToast(responseData.msg || '删除失败', 'error');
+        }
+      } catch (error) {
+        window.api.showToast(`删除失败：${error.message}`, 'error');
+      }
+    }
+  });
+}
+
+/**
+ * 设置解析结果标签管理功能（删除标签、添加标签）
+ * 临时存储解析结果的标签（收藏时再同步到后端）
+ */
+function setupParseResultTagManagement() {
+  // 转义HTML，防止XSS攻击
+  const escapeHtml = (text) => {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  };
+
+  // 1. 监听解析结果的"删除标签"按钮
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('#parseResultTags .tag-delete-btn')) {
+      e.stopPropagation(); // 阻止事件冒泡
+      
+      const deleteBtn = e.target;
+      const tag = deleteBtn.dataset.tag;
+      const tagItem = deleteBtn.closest('.tag-item');
+      
+      if (!tagItem) return;
+
+      // 前端移除标签 + 更新临时数组
+      tagItem.remove();
+      tempParseTags = tempParseTags.filter(t => t !== tag);
+      
+      // 如果标签列表为空，显示提示
+      const tagsContainer = document.getElementById('parseResultTags');
+      if (tagsContainer && tagsContainer.querySelectorAll('.tag-item').length === 0) {
+        tagsContainer.innerHTML = '<span class="empty-tip">暂无标签</span>';
+      }
+    }
+  });
+
+  // 2. 监听解析结果的"添加标签"按钮
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('#parseResultTagAddBtn')) {
+      e.stopPropagation(); // 阻止事件冒泡
+      
+      const input = document.getElementById('parseResultTagInput');
+      const newTag = input.value.trim();
+      const tagsContainer = document.getElementById('parseResultTags');
+
+      if (!input || !tagsContainer) return;
+
+      // 验证：非空
+      if (!newTag) {
+        window.api.showToast('请输入标签内容', 'error');
+        return;
+      }
+
+      // 验证：标签长度
+      if (newTag.length > 20) {
+        window.api.showToast('标签长度不能超过20个字符', 'error');
+        return;
+      }
+
+      // 验证：不重复
+      if (tempParseTags.includes(newTag)) {
+        window.api.showToast('该标签已存在', 'error');
+        input.value = '';
+        return;
+      }
+
+      // 前端添加标签 + 更新临时数组
+      // 移除"暂无标签"提示
+      const emptyTip = tagsContainer.querySelector('.empty-tip');
+      if (emptyTip) {
+        emptyTip.remove();
+      }
+
+      const newTagItem = document.createElement('span');
+      newTagItem.className = 'tag-item';
+      newTagItem.innerHTML = `${escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${escapeHtml(newTag)}" title="删除标签">×</button>`;
+      tagsContainer.appendChild(newTagItem);
+      tempParseTags.push(newTag);
+      input.value = '';
+    }
+  });
+
+  // 3. 监听解析结果标签输入框的回车键
+  document.addEventListener('keypress', (e) => {
+    if (e.target.matches('#parseResultTagInput') && e.key === 'Enter') {
+      e.preventDefault();
+      const addBtn = document.getElementById('parseResultTagAddBtn');
+      if (addBtn) {
+        addBtn.click();
+      }
+    }
+  });
+}
+
+/**
  * 初始化收藏夹模块
  */
 function initCollection() {
@@ -521,6 +725,9 @@ function initCollection() {
 
   // 加载收藏列表
   loadCollections();
+
+  // 设置解析结果标签的增删逻辑
+  setupParseResultTagManagement();
 }
 
 // 导出收藏相关函数

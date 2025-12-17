@@ -161,11 +161,50 @@ async function findJsonArrayItem(filePath, idKey, idValue) {
   return data.find(item => item[idKey] === idValue) || null;
 }
 
+/**
+ * 从 JSON 数组中删除某个项（并发安全）
+ * @param {string} filePath 文件路径
+ * @param {string} idKey ID 字段名（如 'collectionId', 'tripId'）
+ * @param {string} idValue ID 值
+ * @returns {Promise<boolean>} 是否删除成功
+ */
+async function deleteJsonArrayItem(filePath, idKey, idValue) {
+  const fullPath = path.join(__dirname, '../data', filePath);
+  
+  await acquireLock(filePath);
+  
+  try {
+    let data;
+    try {
+      const content = await fs.readFile(fullPath, 'utf-8');
+      data = JSON.parse(content);
+    } catch {
+      return false;
+    }
+    
+    const index = data.findIndex(item => item[idKey] === idValue);
+    if (index === -1) {
+      return false;
+    }
+    
+    data.splice(index, 1);
+    
+    const tempPath = fullPath + '.tmp';
+    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(tempPath, fullPath);
+    
+    return true;
+  } finally {
+    releaseLock(filePath);
+  }
+}
+
 module.exports = {
   readJsonFile,
   writeJsonFile,
   appendToJsonArray,
   updateJsonArrayItem,
-  findJsonArrayItem
+  findJsonArrayItem,
+  deleteJsonArrayItem
 };
 

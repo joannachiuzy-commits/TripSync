@@ -135,7 +135,17 @@
             </div>
             <div class="result-item">
               <strong>提取地点：</strong>
-              <div id="parsePlaces" class="places-tags"></div>
+              <div class="parse-result-tag-group">
+                <!-- 动态生成的标签项（带删除按钮） -->
+                <div class="collection-tags" id="parseResultTags">
+                  <!-- 标签项将动态生成 -->
+                </div>
+                <!-- 添加标签的控件 -->
+                <div class="tag-add-group">
+                  <input type="text" class="tag-add-input" placeholder="输入新标签" id="parseResultTagInput" maxlength="20">
+                  <button class="tag-add-btn" id="parseResultTagAddBtn">添加</button>
+                </div>
+              </div>
             </div>
             <button id="saveCollectionBtn" class="btn btn-success">收藏</button>
           </div>

@@ -6,7 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { readJsonFile, appendToJsonArray, updateJsonArrayItem } = require('../utils/fileUtil');
+const { readJsonFile, appendToJsonArray, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
 const { getOrCreateGuestUser } = require('./user');
 const { extractTagsByGPT } = require('../utils/gptTagExtractor');
 const crypto = require('crypto');
@@ -953,6 +953,74 @@ router.delete('/:id/tags', async (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '删除标签失败'
+    });
+  }
+});
+
+/**
+ * 删除收藏笔记
+ * DELETE /api/collection/:id
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = getUserId(req); // 支持userId和guestId
+
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户ID不能为空'
+      });
+    }
+
+    // 读取收藏列表，验证笔记是否存在且属于当前用户
+    const collections = await readJsonFile('collections.json');
+    const collection = collections.find(c => c.collectionId === id);
+
+    if (!collection) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '收藏项不存在'
+      });
+    }
+
+    // 验证是否属于当前用户
+    if (collection.userId !== userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '无权删除此收藏项'
+      });
+    }
+
+    // 删除收藏项
+    const deleteSuccess = await deleteJsonArrayItem(
+      'collections.json',
+      'collectionId',
+      id
+    );
+
+    if (!deleteSuccess) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '删除失败'
+      });
+    }
+
+    res.json({
+      code: 0,
+      data: null,
+      msg: '笔记删除成功'
+    });
+  } catch (error) {
+    console.error('删除收藏错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '删除笔记失败'
     });
   }
 });
