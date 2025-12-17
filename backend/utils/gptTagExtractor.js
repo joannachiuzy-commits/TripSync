@@ -9,20 +9,25 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PROXY_URL = process.env.OPENAI_PROXY_URL; // 代理地址，格式：http://代理地址:端口
 
+// 统一代理配置（使用Clash的7890端口，如果环境变量未设置则使用默认值）
+const DEFAULT_PROXY_URL = 'http://127.0.0.1:7890'; // Clash默认代理端口
+const finalProxyUrl = PROXY_URL || DEFAULT_PROXY_URL;
+
+// 配置Clash的本地代理（和test.js保持一致，端口7890）
+const proxyAgent = new HttpsProxyAgent(finalProxyUrl);
+console.log('[标签提取] 已配置Clash代理（端口7890）:', finalProxyUrl.replace(/:\/\/.*@/, '://***@')); // 脱敏显示
+
 // 初始化 OpenAI 客户端（如果API密钥存在）
 let openai = null;
 if (OPENAI_API_KEY) {
-  const config = {
-    apiKey: OPENAI_API_KEY
-  };
-  
-  // 如果配置了代理，则使用代理
-  if (PROXY_URL) {
-    config.httpAgent = new HttpsProxyAgent(PROXY_URL);
-    console.log('[标签提取] 已配置代理:', PROXY_URL.replace(/:\/\/.*@/, '://***@')); // 脱敏显示
-  }
-  
-  openai = new OpenAI(config);
+  // 初始化OpenAI实例（确保代理生效）
+  openai = new OpenAI({
+    apiKey: OPENAI_API_KEY,
+    httpAgent: proxyAgent,
+    httpsAgent: proxyAgent,
+    timeout: 30000, // 延长超时时间（30秒）
+    maxRetries: 2 // 添加重试机制
+  });
 } else {
   console.warn('[标签提取] OpenAI API Key 未配置，将使用关键词匹配降级方案');
 }
@@ -100,7 +105,40 @@ async function extractTagsByGPT(content) {
       return tags;
     }
   } catch (error) {
-    console.error('[标签提取] 大模型调用失败：', error.message);
+    // 打印详细错误（含请求URL、代理、状态码等）
+    const errorDetails = {
+      message: error.message,
+      type: error.constructor.name,
+      code: error.code,
+      status: error.status,
+      statusText: error.statusText
+    };
+    
+    // 尝试获取请求相关信息
+    if (error.request) {
+      errorDetails.requestUrl = error.request.url || error.request.path;
+      errorDetails.requestMethod = error.request.method;
+    }
+    
+    // 尝试获取响应相关信息
+    if (error.response) {
+      errorDetails.responseStatus = error.response.status;
+      errorDetails.responseStatusText = error.response.statusText;
+      errorDetails.responseData = error.response.data;
+    }
+    
+    // 代理信息
+    if (proxyAgent) {
+      errorDetails.proxyConfigured = true;
+      errorDetails.proxyUrl = PROXY_URL ? PROXY_URL.replace(/:\/\/.*@/, '://***@') : '未配置';
+    } else {
+      errorDetails.proxyConfigured = false;
+    }
+    
+    console.error('[标签提取] GPT调用详细错误：', JSON.stringify(errorDetails, null, 2));
+    console.error('[标签提取] 错误堆栈：', error.stack);
+    
+    // 降级到关键词匹配
     return oldKeywordTagExtractor(content);
   }
 }

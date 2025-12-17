@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { getConfig } = require('../utils/amapUtil');
 const { getCurrentUser } = require('./user');
+const { extractTagsByGPT } = require('../utils/gptTagExtractor');
 
 /**
  * 简化的用户登录状态检查（从 localStorage 获取的用户信息）
@@ -109,6 +110,112 @@ router.get('/test', (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '获取失败'
+    });
+  }
+});
+
+/**
+ * 测试GPT代理接口：验证代理能否正常调用chat/completions
+ * GET /api/config/test-gpt-proxy
+ * 
+ * 注意：此接口仅用于开发调试，生产环境应移除或添加严格权限控制
+ */
+router.get('/test-gpt-proxy', async (req, res) => {
+  try {
+    const { OpenAI } = require('openai');
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    
+    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+    const PROXY_URL = process.env.OPENAI_PROXY_URL;
+    
+    if (!OPENAI_API_KEY) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: 'OpenAI API Key 未配置'
+      });
+    }
+    
+    // 统一代理配置
+    let proxyAgent = null;
+    if (PROXY_URL) {
+      proxyAgent = new HttpsProxyAgent(PROXY_URL);
+    }
+    
+    const config = {
+      apiKey: OPENAI_API_KEY,
+      timeout: 30000,
+      maxRetries: 2
+    };
+    
+    if (proxyAgent) {
+      config.httpAgent = proxyAgent;
+      config.httpsAgent = proxyAgent;
+    }
+    
+    const openai = new OpenAI(config);
+    
+    console.log('[GPT测试] 开始测试GPT代理连接...');
+    const startTime = Date.now();
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { 
+          role: "user", 
+          content: "请返回“测试成功”" 
+        }
+      ],
+      max_tokens: 10,
+      temperature: 0
+    });
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    const result = response.choices[0].message.content;
+    
+    console.log(`[GPT测试] 测试成功，耗时: ${duration}ms`);
+    
+    res.json({
+      code: 0,
+      data: {
+        success: true,
+        result: result,
+        duration: `${duration}ms`,
+        proxyConfigured: !!proxyAgent,
+        proxyUrl: PROXY_URL ? PROXY_URL.replace(/:\/\/.*@/, '://***@') : '未配置'
+      },
+      msg: 'GPT代理测试成功'
+    });
+  } catch (error) {
+    console.error('[GPT测试] 测试失败:', error);
+    
+    const errorDetails = {
+      message: error.message,
+      type: error.constructor.name,
+      code: error.code,
+      status: error.status
+    };
+    
+    if (error.request) {
+      errorDetails.requestUrl = error.request.url || error.request.path;
+    }
+    
+    if (error.response) {
+      errorDetails.responseStatus = error.response.status;
+      errorDetails.responseStatusText = error.response.statusText;
+    }
+    
+    res.json({
+      code: 1,
+      data: {
+        success: false,
+        error: errorDetails,
+        proxyConfigured: !!process.env.OPENAI_PROXY_URL,
+        proxyUrl: process.env.OPENAI_PROXY_URL ? process.env.OPENAI_PROXY_URL.replace(/:\/\/.*@/, '://***@') : '未配置'
+      },
+      msg: `GPT代理测试失败: ${error.message}`
     });
   }
 });

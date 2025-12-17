@@ -375,11 +375,14 @@ router.post('/parse', async (req, res) => {
           }
         }
 
-        // 优化：更新DOM选择器，适配最新页面结构，增加更多内容提取规则
+        // 优化：更新DOM选择器，使用小红书网页版正文的准确选择器
         const contentSelectors = [
-          // 新的选择器（适配最新页面结构）
+          // 小红书网页版正文的核心选择器（优先级从高到低）
           /<div[^>]*class="[^"]*note-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+          /<div[^>]*class="[^"]*rich-text-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
           /<div[^>]*class="[^"]*content-wrapper[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+          /<article[^>]*>[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>[\s\S]*?<\/article>/i,
+          // 备选选择器
           /<div[^>]*class="[^"]*desc[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
           /<div[^>]*class="[^"]*note-desc[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
           /<div[^>]*class="[^"]*rich-text[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
@@ -397,54 +400,88 @@ router.post('/parse', async (req, res) => {
           /<div[^>]*id="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i
         ];
         
+        // 优化正文清理函数（避免过度清理导致内容丢失）
+        const cleanNoteContent = (htmlContent) => {
+          if (!htmlContent) return '';
+          
+          // 1. 先去除HTML标签，保留文本
+          let text = htmlContent
+            // 移除script和style标签及其内容
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            // 移除noscript标签
+            .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+            // 移除注释
+            .replace(/<!--[\s\S]*?-->/g, '')
+            // 移除所有HTML标签，但保留换行（用\n替换）
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/p>/gi, '\n')
+            .replace(/<\/div>/gi, '\n')
+            .replace(/<[^>]+>/g, '')
+            // 替换HTML实体
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&apos;/g, "'")
+            .replace(/&#x27;/g, "'")
+            .replace(/&#x2F;/g, '/')
+            // 清理多余空白，但保留换行
+            .replace(/[ \t]+/g, ' ') // 多个空格/制表符合并为单个空格
+            .replace(/[ \t]*\n[ \t]*/g, '\n') // 清理换行前后的空格
+            .replace(/\n{3,}/g, '\n\n') // 多个连续换行合并为两个
+            .trim();
+          
+          // 3. 避免内容过短（若清理后长度<50字符，返回原始文本的前200字符）
+          if (text.length < 50) {
+            const fallbackText = htmlContent
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/\s+/g, ' ')
+              .substring(0, 200)
+              .trim();
+            return fallbackText || text;
+          }
+          
+          return text;
+        };
+        
+        // 遍历选择器，提取正文内容
         for (let i = 0; i < contentSelectors.length; i++) {
           const selector = contentSelectors[i];
           const match = html.match(selector);
           if (match && match[1]) {
             const rawContent = match[1];
+            const extracted = cleanNoteContent(rawContent);
             
-            // 优化：改进HTML清理逻辑，避免提取无效内容
-            let extracted = rawContent
-              // 移除script和style标签及其内容
-              .replace(/<script[\s\S]*?<\/script>/gi, '')
-              .replace(/<style[\s\S]*?<\/style>/gi, '')
-              // 移除noscript标签
-              .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
-              // 移除注释
-              .replace(/<!--[\s\S]*?-->/g, '')
-              // 移除所有HTML标签
-              .replace(/<[^>]+>/g, ' ')
-              // 替换HTML实体
-              .replace(/&nbsp;/g, ' ')
-              .replace(/&amp;/g, '&')
-              .replace(/&lt;/g, '<')
-              .replace(/&gt;/g, '>')
-              .replace(/&quot;/g, '"')
-              .replace(/&#39;/g, "'")
-              .replace(/&apos;/g, "'")
-              .replace(/&#x27;/g, "'")
-              .replace(/&#x2F;/g, '/')
-              // 清理多余空白
-              .replace(/\s+/g, ' ')
-              .trim();
-            
-            // 验证提取的内容是否有效（避免提取到导航、广告等无效内容）
+            // 校验：提取的内容长度需≥30字符，且不是标题重复，否则尝试下一个选择器
             const invalidPatterns = [
               /^(首页|登录|注册|搜索|菜单|导航|广告|cookie|隐私|政策)/i,
               /^(首页|登录|注册|搜索|菜单|导航|广告|cookie|隐私|政策).{0,20}$/i
             ];
             
-            const isValid = extracted.length > 20 && 
+            // 检查是否与标题重复（如果提取的内容与标题高度相似，则跳过）
+            const isTitleDuplicate = title !== '未获取到标题' && 
+                                   title.length > 5 && 
+                                   extracted.length <= title.length * 1.5 &&
+                                   extracted.includes(title.substring(0, Math.min(10, title.length)));
+            
+            const isValid = extracted.length >= 30 && 
                            !invalidPatterns.some(pattern => pattern.test(extracted)) &&
                            !extracted.match(/^[\s\W]*$/) && // 不是纯符号
-                           extracted.match(/[\u4e00-\u9fa5a-zA-Z]/); // 包含中文或英文
+                           extracted.match(/[\u4e00-\u9fa5a-zA-Z]/) && // 包含中文或英文
+                           !isTitleDuplicate; // 不与标题重复
             
             if (isValid) {
               contentText = extracted;
-              console.log(`[小红书解析] 从DOM选择器${i + 1}成功提取正文 (${extracted.length}字符)`);
+              console.log(`[小红书解析] 从DOM选择器${i + 1}成功提取正文 (${extracted.length}字符)：${extracted.substring(0, 50)}...`);
               break;
             } else {
-              console.warn(`[小红书解析] DOM选择器${i + 1}提取的内容无效，跳过`);
+              console.warn(`[小红书解析] DOM选择器${i + 1}提取的内容无效（长度：${extracted.length}，与标题重复：${isTitleDuplicate}），跳过`);
             }
           }
         }
@@ -452,28 +489,61 @@ router.post('/parse', async (req, res) => {
         // 如果仍未提取到，尝试从整个HTML中提取文本（最后的降级方案）
         if (contentText === '无法获取笔记正文') {
           console.warn('[小红书解析] 所有DOM选择器均失败，尝试从整个HTML提取文本');
-          let cleanHtml = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
-            .replace(/<!--[\s\S]*?-->/g, '');
           
-          contentText = cleanHtml
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/\s+/g, ' ')
-            .trim();
+          // 优化清理逻辑
+          const cleanNoteContent = (htmlContent) => {
+            if (!htmlContent) return '';
+            let text = htmlContent
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+              .replace(/<!--[\s\S]*?-->/g, '')
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<\/p>/gi, '\n')
+              .replace(/<\/div>/gi, '\n')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/[ \t]+/g, ' ')
+              .replace(/[ \t]*\n[ \t]*/g, '\n')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+            
+            if (text.length < 50) {
+              const fallbackText = htmlContent
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .substring(0, 200)
+                .trim();
+              return fallbackText || text;
+            }
+            return text;
+          };
+          
+          contentText = cleanNoteContent(html);
           
           // 如果内容太长，截取中间部分（通常正文在中间）
           if (contentText.length > 5000) {
             const start = Math.floor(contentText.length * 0.2);
             const end = Math.floor(contentText.length * 0.8);
             contentText = contentText.substring(start, end).trim();
+          }
+          
+          // 最终兜底：若所有选择器都提取失败，返回提示信息
+          if (contentText.length < 30 || contentText === title) {
+            console.warn('[小红书解析] 正文提取失败，内容过短或与标题重复');
+            contentText = title !== '未获取到标题' 
+              ? `${title}\n[正文提取失败，请查看原笔记获取详细内容]`
+              : '[正文提取失败，请查看原笔记获取详细内容]';
+          } else {
+            console.log(`[小红书解析] 从整个HTML提取正文（长度：${contentText.length}字符）：${contentText.substring(0, 50)}...`);
           }
         }
       }
@@ -493,9 +563,12 @@ router.post('/parse', async (req, res) => {
         // 验证内容质量
         if (contentText.length < 10) {
           console.warn('[小红书解析] 提取的正文过短，可能不准确');
-          contentText = '无法获取笔记正文';
+          contentText = title !== '未获取到标题' 
+            ? `${title}\n[正文提取失败，请查看原笔记获取详细内容]`
+            : '[正文提取失败，请查看原笔记获取详细内容]';
         } else {
           console.log(`[小红书解析] 正文清理完成，最终长度: ${contentText.length}字符`);
+          console.log(`[小红书解析] 提取正文内容预览：${contentText.substring(0, 100)}...`);
         }
       }
 

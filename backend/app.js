@@ -27,6 +27,8 @@ const tripRoutes = require('./routes/trip');
 const amapRoutes = require('./routes/amap');
 const shareRoutes = require('./routes/share');
 const configRoutes = require('./routes/config');
+const testRoutes = require('./routes/test'); // 新增：测试路由
+// 注意：testRoutes 下的接口会自动拼接 /api/test 前缀，完整路径为 /api/test/xxx
 
 app.use('/api/user', userRoutes);
 app.use('/api/collection', collectionRoutes);
@@ -34,6 +36,7 @@ app.use('/api/trip', tripRoutes);
 app.use('/api/amap', amapRoutes);
 app.use('/api/share', shareRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/test', testRoutes); // 新增：挂载测试路由（完整路径：/api/test/xxx）
 
 // 简易接口文档（仅开发环境可用）
 app.get('/api/docs', (req, res) => {
@@ -138,6 +141,13 @@ app.get('/api/docs', (req, res) => {
         description: '测试接口：返回高德配置（脱敏展示，仅用于调试）',
         params: {},
         example: { code: 0, data: { key: 'xxxx****xxxx', hasSecurityJsCode: '已配置', hasFrontSecurityJsCode: true, apiDomain: 'https://restapi.amap.com' }, msg: '配置信息（已脱敏）' }
+      },
+      {
+        path: '/api/test/test-gpt-proxy',
+        method: 'GET',
+        description: '测试GPT代理接口：验证代理能否正常调用chat/completions（仅用于调试）',
+        params: {},
+        example: { code: 0, data: { success: true, result: '测试成功', duration: '1234ms', proxyConfigured: true }, msg: 'GPT代理测试成功' }
       }
     ]
   };
