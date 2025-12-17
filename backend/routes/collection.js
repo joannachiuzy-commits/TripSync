@@ -9,16 +9,8 @@ const axios = require('axios');
 const { readJsonFile, appendToJsonArray, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
 const { getOrCreateGuestUser } = require('./user');
 const { extractTagsByGPT } = require('../utils/gptTagExtractor');
+const { getUserId } = require('../utils/requestHelper');
 const crypto = require('crypto');
-
-/**
- * 获取用户ID（支持userId和guestId）
- * @param {Object} req 请求对象
- * @returns {string|null} 用户ID
- */
-function getUserId(req) {
-  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
-}
 
 /**
  * 解析小红书链接

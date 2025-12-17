@@ -174,9 +174,21 @@ app.use((err, req, res, next) => {
 });
 
 // 启动前配置检查
-const { validateConfig } = require('./utils/amapUtil');
+console.log('\n📋 配置检查开始...\n');
+
+// 检查 OpenAI 配置
 try {
-  // 检查高德配置（启动时仅警告，不阻止启动）
+  const { validateConfig: validateOpenAIConfig } = require('./utils/gptUtil');
+  // gptUtil.js 中的 validateConfig 会在模块加载时自动执行
+  console.log('✅ OpenAI 配置检查完成\n');
+} catch (error) {
+  console.warn('⚠️  OpenAI 配置检查失败:', error.message);
+  console.warn('   AI 生成功能将不可用，请检查 .env 文件中的配置\n');
+}
+
+// 检查高德配置
+try {
+  const { validateConfig } = require('./utils/amapUtil');
   validateConfig();
   console.log('✅ 高德地图配置检查通过');
   // 验证AMAP_KEY是否正确加载（仅显示前8位和后4位，用于调试）

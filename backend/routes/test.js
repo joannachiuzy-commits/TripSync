@@ -3,6 +3,7 @@
  * 提供各种测试接口，用于开发调试
  * 
  * 注意：此路由仅用于开发调试，生产环境应移除或添加严格权限控制
+ * 此文件在 app.js 中被挂载到 /api/test 路径下
  */
 
 const express = require('express');

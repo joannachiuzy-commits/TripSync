@@ -6,17 +6,8 @@
 const express = require('express');
 const router = express.Router();
 const { readJsonFile, appendToJsonArray, findJsonArrayItem } = require('../utils/fileUtil');
+const { getUserId } = require('../utils/requestHelper');
 const crypto = require('crypto');
-
-/**
- * 获取用户ID（支持userId和guestId）
- * @param {Object} req 请求对象
- * @returns {string|null} 用户ID
- */
-function getUserId(req) {
-  // 优先从body获取，其次从query获取
-  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
-}
 
 /**
  * 创建或获取游客用户
@@ -174,6 +165,7 @@ router.post('/login', async (req, res) => {
 
 // 导出工具函数供其他路由使用
 module.exports = router;
+// getUserId 已从 requestHelper 统一导出，此处保留导出以保持向后兼容
 module.exports.getUserId = getUserId;
 module.exports.getOrCreateGuestUser = getOrCreateGuestUser;
 

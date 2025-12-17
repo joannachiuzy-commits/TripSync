@@ -3,7 +3,23 @@
  * 统一处理接口调用、错误处理、加载状态
  */
 
-const API_BASE = 'http://localhost:3006/api';
+// API 基础地址配置
+// 【重要】确保使用本地后端服务地址，不要使用公网 IP
+// 默认使用 localhost:3006，与后端 app.js 中的 PORT 配置一致
+// 可以通过在 HTML 中设置 window.API_BASE_URL 来覆盖默认值（仅用于特殊场景）
+const API_BASE = window.API_BASE_URL || 'http://localhost:3006/api';
+
+// 验证 API 地址是否为本地地址（开发环境安全检查）
+if (API_BASE.includes('localhost') || API_BASE.includes('127.0.0.1')) {
+  // 开发环境：在控制台显示当前使用的 API 地址（便于调试）
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    console.log('📍 API 基础地址:', API_BASE);
+    console.log('✅ 已确认使用本地后端服务地址');
+  }
+} else {
+  console.warn('⚠️  警告：API 地址不是本地地址，当前配置:', API_BASE);
+  console.warn('   建议修改为本地地址，如: http://localhost:3006/api');
+}
 
 /**
  * 通用请求方法
@@ -24,30 +40,40 @@ async function request(url, options = {}) {
     showLoadingOverlay();
   }
 
+  // 创建 AbortController 用于超时控制
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+
+  // 构建完整 URL（在 try 块之前定义，确保 catch 块中可用）
+  let fullUrl = url.startsWith('http') ? url : `${API_BASE}${url}`;
+  
+  // GET 请求将 body 转为 query 参数（在 try 块之前处理，确保 fullUrl 完整）
+  if (method === 'GET' && body) {
+    const params = new URLSearchParams(body).toString();
+    fullUrl = params ? `${fullUrl}?${params}` : fullUrl;
+  }
+
   try {
     const config = {
       method,
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      signal: controller.signal // 添加超时控制
     };
 
     if (body && method !== 'GET') {
       config.body = JSON.stringify(body);
     }
 
-    // 构建完整 URL
-    let fullUrl = url.startsWith('http') ? url : `${API_BASE}${url}`;
-    
-    // GET 请求将 body 转为 query 参数
-    if (method === 'GET' && body) {
-      const params = new URLSearchParams(body).toString();
-      fullUrl = params ? `${fullUrl}?${params}` : fullUrl;
-      // GET 请求不需要 body
-      delete config.body;
+    // 开发环境：记录请求 URL（便于调试）
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.log(`📤 API 请求: ${method} ${fullUrl}`);
     }
 
     const response = await fetch(fullUrl, config);
+    clearTimeout(timeoutId); // 请求成功，清除超时定时器
+    
     const data = await response.json();
     
     if (showLoading) hideLoadingOverlay();
@@ -59,10 +85,52 @@ async function request(url, options = {}) {
       throw new Error(data.msg || '请求失败');
     }
   } catch (error) {
+    clearTimeout(timeoutId); // 确保清除超时定时器
     if (showLoading) hideLoadingOverlay();
     
+    // 记录详细错误信息到控制台（便于调试）
+    console.error('❌ API 请求失败:', {
+      url: fullUrl || url,
+      method: method,
+      error: error.message,
+      errorName: error.name,
+      apiBase: API_BASE
+    });
+    
     if (showError) {
-      showToast(error.message || '网络请求失败', 'error');
+      // 根据错误类型提供友好的错误提示
+      let errorMessage = '网络请求失败';
+      
+      if (error.name === 'AbortError') {
+        // 前端请求超时（60秒）
+        errorMessage = '请求超时，请检查网络连接或稍后重试';
+      } else if (error.message.includes('ETIMEDOUT') || error.message.includes('timeout')) {
+        // 连接超时：可能是后端服务未启动，或后端调用外部服务超时
+        if (API_BASE.includes('localhost') || API_BASE.includes('127.0.0.1')) {
+          errorMessage = '本地后端服务未启动，请先启动后端服务（npm start）';
+        } else {
+          errorMessage = '连接超时，服务暂时不可用，请检查网络或稍后重试';
+        }
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        // 无法连接到服务器：通常是后端服务未启动
+        if (API_BASE.includes('localhost') || API_BASE.includes('127.0.0.1')) {
+          errorMessage = '无法连接到本地后端服务，请检查后端服务是否已启动（npm start）';
+        } else {
+          errorMessage = '无法连接到服务器，请检查后端服务是否启动';
+        }
+      } else if (error.message.includes('AI生成失败')) {
+        // 后端返回的 AI 生成失败错误，直接显示后端错误信息
+        // 注意：这里的错误可能来自后端调用 OpenAI API 的超时
+        if (error.message.includes('ETIMEDOUT')) {
+          errorMessage = 'AI 生成超时，可能是网络问题或 OpenAI API 服务异常，请稍后重试';
+        } else {
+          errorMessage = error.message;
+        }
+      } else {
+        errorMessage = error.message || '网络请求失败';
+      }
+      
+      showToast(errorMessage, 'error');
     }
     throw error;
   }

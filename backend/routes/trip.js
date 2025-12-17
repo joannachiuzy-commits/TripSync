@@ -8,16 +8,8 @@ const router = express.Router();
 const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem } = require('../utils/fileUtil');
 const { generateItinerary } = require('../utils/gptUtil');
 const { getOrCreateGuestUser } = require('./user');
+const { getUserId } = require('../utils/requestHelper');
 const crypto = require('crypto');
-
-/**
- * 获取用户ID（支持userId和guestId）
- * @param {Object} req 请求对象
- * @returns {string|null} 用户ID
- */
-function getUserId(req) {
-  return req.body.userId || req.body.guestId || req.query.userId || req.query.guestId || null;
-}
 
 /**
  * AI 生成行程
@@ -67,12 +59,30 @@ router.post('/generate', async (req, res) => {
     // 调用 GPT 生成行程
     let itinerary;
     try {
+      console.log('[行程生成] 开始生成行程，收藏数量:', selectedCollections.length, '天数:', days);
       itinerary = await generateItinerary(selectedCollections, days, budget);
+      console.log('[行程生成] 行程生成成功，天数:', itinerary.length);
     } catch (gptError) {
+      console.error('[行程生成] AI 生成失败:', gptError.message);
+      
+      // 根据错误类型提供更明确的提示
+      let errorMsg = `AI 生成失败: ${gptError.message}`;
+      
+      // 如果是配置相关错误，提供更详细的提示
+      if (gptError.message.includes('服务地址配置错误') || 
+          gptError.message.includes('无法解析') ||
+          gptError.message.includes('连接失败')) {
+        errorMsg = `AI 服务配置错误: ${gptError.message}。请检查 .env 文件中的 OPENAI_API_URL 和 OPENAI_PROXY_URL 配置`;
+      } else if (gptError.message.includes('请求超时') || gptError.message.includes('timeout')) {
+        errorMsg = `AI 服务请求超时: ${gptError.message}。请检查网络连接或稍后重试`;
+      } else if (gptError.message.includes('API Key 未配置')) {
+        errorMsg = 'OpenAI API Key 未配置，请在 .env 文件中配置 OPENAI_API_KEY';
+      }
+      
       return res.json({
         code: 1,
         data: null,
-        msg: `AI 生成失败: ${gptError.message}`
+        msg: errorMsg
       });
     }
 

@@ -80,13 +80,7 @@ function initParseResultTags(initialTags) {
       const tagItem = document.createElement('span');
       tagItem.className = 'tag-item';
       // 转义HTML，防止XSS攻击
-      const escapeHtml = (text) => {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-      };
-      tagItem.innerHTML = `${escapeHtml(tag)} <button class="tag-delete-btn" data-tag="${escapeHtml(tag)}" title="删除标签">×</button>`;
+      tagItem.innerHTML = `${window.utils.escapeHtml(tag)} <button class="tag-delete-btn" data-tag="${window.utils.escapeHtml(tag)}" title="删除标签">×</button>`;
       tagsContainer.appendChild(tagItem);
     });
   } else {
@@ -175,24 +169,17 @@ async function loadCollections() {
     }
 
     // 转义HTML特殊字符，防止XSS攻击
-    const escapeHtml = (text) => {
-      if (!text) return '';
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    };
-    
     container.innerHTML = collections.map(collection => {
-      const title = escapeHtml(collection.title || '未命名收藏');
+      const title = window.utils.escapeHtml(collection.title || '未命名收藏');
       // URL不需要转义，但需要验证和清理
       const url = (collection.url || '').trim();
-      const content = escapeHtml(collection.content || '暂无笔记正文');
+      const content = window.utils.escapeHtml(collection.content || '暂无笔记正文');
       // 优先使用tags，如果没有则使用places
       const tagsToShow = (collection.tags && collection.tags.length > 0) 
         ? collection.tags 
         : (collection.places || []);
       const places = tagsToShow.length > 0
-        ? tagsToShow.map(tag => `<span class="location-tag">${escapeHtml(tag)}</span>`).join('')
+        ? tagsToShow.map(tag => `<span class="location-tag">${window.utils.escapeHtml(tag)}</span>`).join('')
         : '';
       
       return `
@@ -217,8 +204,8 @@ async function loadCollections() {
               <div class="collection-tags">
                 ${tagsToShow.length > 0 ? tagsToShow.map(tag => `
                   <span class="tag-item">
-                    ${escapeHtml(tag)}
-                    <button class="tag-delete-btn" data-tag="${escapeHtml(tag)}" title="删除标签">×</button>
+                    ${window.utils.escapeHtml(tag)}
+                    <button class="tag-delete-btn" data-tag="${window.utils.escapeHtml(tag)}" title="删除标签">×</button>
                   </span>
                 `).join('') : '<span class="empty-tip">暂无标签</span>'}
               </div>
@@ -471,14 +458,6 @@ function setupTagManagement() {
         return;
       }
 
-      // 转义HTML，防止XSS攻击
-      const escapeHtml = (text) => {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-      };
-
       // 1. 前端先添加标签
       // 移除"暂无标签"提示
       const emptyTip = tagsContainer.querySelector('.empty-tip');
@@ -488,7 +467,7 @@ function setupTagManagement() {
 
       const newTagItem = document.createElement('span');
       newTagItem.className = 'tag-item';
-      newTagItem.innerHTML = `${escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${escapeHtml(newTag)}" title="删除标签">×</button>`;
+      newTagItem.innerHTML = `${window.utils.escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${window.utils.escapeHtml(newTag)}" title="删除标签">×</button>`;
       tagsContainer.appendChild(newTagItem);
       input.value = '';
 
@@ -611,14 +590,6 @@ function setupCollectionDelete() {
  * 临时存储解析结果的标签（收藏时再同步到后端）
  */
 function setupParseResultTagManagement() {
-  // 转义HTML，防止XSS攻击
-  const escapeHtml = (text) => {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  };
-
   // 1. 监听解析结果的"删除标签"按钮
   document.addEventListener('click', (e) => {
     if (e.target.matches('#parseResultTags .tag-delete-btn')) {
@@ -681,7 +652,7 @@ function setupParseResultTagManagement() {
 
       const newTagItem = document.createElement('span');
       newTagItem.className = 'tag-item';
-      newTagItem.innerHTML = `${escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${escapeHtml(newTag)}" title="删除标签">×</button>`;
+      newTagItem.innerHTML = `${window.utils.escapeHtml(newTag)} <button class="tag-delete-btn" data-tag="${window.utils.escapeHtml(newTag)}" title="删除标签">×</button>`;
       tagsContainer.appendChild(newTagItem);
       tempParseTags.push(newTag);
       input.value = '';
