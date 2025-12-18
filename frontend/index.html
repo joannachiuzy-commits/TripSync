@@ -162,81 +162,86 @@
 
     <!-- 生成行程模块 -->
     <div id="generateTab" class="tab-content">
-      <div class="container">
-        <h2>✨ AI 生成行程</h2>
-        
-        <div class="generate-form">
-          <div class="form-group">
-            <label>选择收藏</label>
-            <div id="collectionCheckboxes" class="checkboxes-container">
-              <p class="empty-tip">暂无收藏，请先到收藏夹添加</p>
-            </div>
-          </div>
+      <div class="trip-page-container">
+        <!-- 左侧面板：基础内容区 -->
+        <div class="trip-left-panel">
+          <h2>✨ AI 生成行程</h2>
           
-          <div class="form-row">
+          <div class="generate-form">
             <div class="form-group">
-              <label>行程天数</label>
-              <input type="number" id="tripDays" min="1" max="30" value="3" required>
+              <label>选择收藏</label>
+              <div id="collectionCheckboxes" class="checkboxes-container">
+                <p class="empty-tip">暂无收藏，请先到收藏夹添加</p>
+              </div>
             </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label>行程天数</label>
+                <input type="number" id="tripDays" min="1" max="30" value="3" required>
+              </div>
+              <div class="form-group">
+                <label>预算</label>
+                <input type="text" id="tripBudget" placeholder="如：5000元，不限">
+              </div>
+            </div>
+            
             <div class="form-group">
-              <label>预算</label>
-              <input type="text" id="tripBudget" placeholder="如：5000元，不限">
-            </div>
-          </div>
-          
-          <div class="form-group">
-            <label>AI 模型选择</label>
-            <select id="modelTypeSelect" class="form-select">
-              <option value="auto">智能模式（优先 GPT，失败自动切换通义千问）</option>
-              <option value="gpt">仅使用 GPT</option>
-              <option value="qwen">仅使用通义千问</option>
-            </select>
-            <small class="form-text" style="color: #666; font-size: 12px;">
-              智能模式：优先使用 GPT，如遇网络/配额问题自动切换通义千问
-            </small>
-          </div>
-          
-          <!-- 行程偏好补充模块 -->
-          <div class="preference-module">
-            <h3 class="preference-title">告诉AI你的行程偏好</h3>
-            <p class="preference-desc">比如"第一天下午到""不希望早起"，AI会精准适配</p>
-            
-            <!-- 输入框+清空按钮 -->
-            <div class="input-wrapper">
-              <textarea 
-                id="preferenceInput"
-                class="preference-input" 
-                placeholder="请输入你的行程偏好/特殊要求（如时间、作息、忌口等）"
-                rows="3"
-              ></textarea>
-              <button id="clearPreferenceBtn" class="clear-btn">清空</button>
+              <label>AI 模型选择</label>
+              <select id="modelTypeSelect" class="form-select">
+                <option value="auto">智能模式（优先 GPT，失败自动切换通义千问）</option>
+                <option value="gpt">仅使用 GPT</option>
+                <option value="qwen">仅使用通义千问</option>
+              </select>
+              <small class="form-text" style="color: #666; font-size: 12px;">
+                智能模式：优先使用 GPT，如遇网络/配额问题自动切换通义千问
+              </small>
             </div>
             
-            <!-- 快捷偏好标签 -->
-            <div class="tag-group">
-              <span class="preference-tag" data-text="不希望早起">不希望早起</span>
-              <span class="preference-tag" data-text="第一天下午到">第一天下午到</span>
-              <span class="preference-tag" data-text="最后一天午饭后走">最后一天午饭后走</span>
-              <span class="preference-tag" data-text="避开拥挤景点">避开拥挤景点</span>
-              <span class="preference-tag" data-text="偏好美食打卡">偏好美食打卡</span>
+            <!-- 行程偏好补充模块 -->
+            <div class="preference-module">
+              <h3 class="preference-title">告诉AI你的行程偏好</h3>
+              <p class="preference-desc">比如"第一天下午到""不希望早起"，AI会精准适配</p>
+              
+              <!-- 输入框+清空按钮 -->
+              <div class="input-wrapper">
+                <textarea 
+                  id="preferenceInput"
+                  class="preference-input" 
+                  placeholder="请输入你的行程偏好/特殊要求（如时间、作息、忌口等）"
+                  rows="3"
+                ></textarea>
+                <button id="clearPreferenceBtn" class="clear-btn">清空</button>
+              </div>
+              
+              <!-- 快捷偏好标签 -->
+              <div class="tag-group">
+                <span class="preference-tag" data-text="不希望早起">不希望早起</span>
+                <span class="preference-tag" data-text="第一天下午到">第一天下午到</span>
+                <span class="preference-tag" data-text="最后一天午饭后走">最后一天午饭后走</span>
+                <span class="preference-tag" data-text="避开拥挤景点">避开拥挤景点</span>
+                <span class="preference-tag" data-text="偏好美食打卡">偏好美食打卡</span>
+              </div>
+              
+              <!-- Agent反馈提示（默认隐藏） -->
+              <div id="agentTip" class="agent-tip" style="display: none;">✅ 已收到你的偏好，生成行程时会优先适配</div>
             </div>
             
-            <!-- Agent反馈提示（默认隐藏） -->
-            <div id="agentTip" class="agent-tip" style="display: none;">✅ 已收到你的偏好，生成行程时会优先适配</div>
+            <button id="generateTripBtn" class="btn btn-primary btn-large">生成行程</button>
           </div>
-          
-          <button id="generateTripBtn" class="btn btn-primary btn-large">生成行程</button>
         </div>
 
-        <!-- 生成结果 -->
-        <div id="generateResult" class="trip-result" style="display: none;">
-          <h3 id="tripTitle" class="trip-title-editable">生成的行程</h3>
-          <!-- 保存行程按钮 -->
-          <div class="save-trip-container" style="display: none;">
-            <button id="saveGeneratedTripBtn" class="save-trip-btn">保存行程</button>
-            <span class="save-trip-tip" style="display: none;">✅ 行程已生效</span>
+        <!-- 右侧面板：生成结果区 -->
+        <div class="trip-right-panel">
+          <div id="generateResult" class="trip-result" style="display: none;">
+            <h3 id="tripTitle" class="trip-title-editable">生成的行程</h3>
+            <!-- 保存行程按钮 -->
+            <div class="save-trip-container" style="display: none;">
+              <button id="saveGeneratedTripBtn" class="save-trip-btn">保存行程</button>
+              <span class="save-trip-tip" style="display: none;">✅ 行程已生效</span>
+            </div>
+            <div id="generatedItinerary"></div>
           </div>
-          <div id="generatedItinerary"></div>
         </div>
       </div>
     </div>

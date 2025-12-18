@@ -175,11 +175,70 @@ body {
 /* 标签页内容 */
 .tab-content {
   display: none;
-  padding: 2rem;
+  padding: 0;
 }
 
 .tab-content.active {
   display: block;
+}
+
+/* 生成行程页面：左右分栏布局 */
+.trip-page-container {
+  display: flex;
+  width: 100%;
+  min-height: calc(100vh - 120px); /* 减去header和tabs的高度 */
+  gap: 24px;
+  padding: 20px;
+  box-sizing: border-box;
+  background: #f9f9f9;
+}
+
+/* 左侧面板：占50%宽度 */
+.trip-left-panel {
+  flex: 1 1 50%;
+  max-width: 50%;
+  min-width: 320px;
+  box-sizing: border-box;
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.trip-left-panel h2 {
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* 右侧面板：占50%宽度 */
+.trip-right-panel {
+  flex: 1 1 50%;
+  max-width: 50%;
+  min-width: 320px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  background: #f9f9f9;
+}
+
+/* 响应式适配：小屏幕（≤768px）自动转为上下布局 */
+@media (max-width: 768px) {
+  .trip-page-container {
+    flex-direction: column;
+    padding: 12px;
+    gap: 16px;
+  }
+  
+  .trip-left-panel,
+  .trip-right-panel {
+    max-width: 100%;
+    min-width: 100%;
+  }
+  
+  .trip-left-panel {
+    padding: 16px;
+  }
 }
 
 .container {
@@ -194,7 +253,11 @@ body {
 
 /* 表单样式 */
 .form-group {
-  margin-bottom: 1.5rem;
+  margin-bottom: 16px;
+}
+
+.trip-left-panel .form-group {
+  padding: 0;
 }
 
 .form-group label {
@@ -208,10 +271,18 @@ body {
 .form-group textarea {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
+  border: 1px solid #eee;
+  border-radius: 6px;
   font-size: 1rem;
   font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #28a745;
 }
 
 .form-row {
@@ -241,12 +312,13 @@ body {
 }
 
 .btn-primary {
-  background: var(--primary-color);
+  background: #28a745;
   color: white;
+  border-radius: 6px;
 }
 
 .btn-primary:hover {
-  background: var(--primary-dark);
+  background: #218838;
 }
 
 .btn-secondary {
@@ -580,11 +652,11 @@ body {
 /* 行程展示 */
 .trip-result {
   position: relative;
-  background: var(--card-bg);
-  padding: 1.5rem;
-  border-radius: 5px;
-  margin-top: 1.5rem;
-  box-shadow: var(--shadow);
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .day-section {
@@ -598,10 +670,16 @@ body {
 }
 
 .day-header {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--primary-color);
-  margin-bottom: 1rem;
+  font-size: 16px;
+  font-weight: 500;
+  color: #28a745;
+  margin: 16px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.day-header:first-child {
+  margin-top: 0;
 }
 
 .trip-item {
@@ -612,6 +690,23 @@ body {
   background: var(--bg-color);
   border-radius: 5px;
   margin-bottom: 0.75rem;
+}
+
+/* 生成行程页面的editable-item样式优化 */
+#generatedItinerary .editable-item {
+  padding: 12px 16px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  transition: background-color 0.2s;
+}
+
+#generatedItinerary .editable-item:hover {
+  background: #f5f5f5;
 }
 
 /* 单个行程项目删除按钮 */
@@ -670,6 +765,10 @@ body {
   padding: 2px 4px;
   border-radius: 3px;
   transition: background-color 0.2s;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #333;
 }
 
 .trip-title-editable:hover {
@@ -765,23 +864,45 @@ body {
   flex-wrap: wrap;
 }
 
+#generatedItinerary .editable-item {
+  padding: 12px 16px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  transition: background-color 0.2s;
+  flex-wrap: wrap;
+}
+
+#generatedItinerary .editable-item:hover {
+  background: #f5f5f5;
+}
+
 #generatedItinerary .editable-item .item-time {
   min-width: 60px;
-  font-weight: 600;
-  color: var(--primary-color);
+  font-weight: 500;
+  color: #28a745;
+  font-size: 14px;
 }
 
 #generatedItinerary .editable-item .item-place {
   font-weight: 500;
   flex: 1;
   min-width: 100px;
+  color: #333;
+  font-size: 14px;
 }
 
 #generatedItinerary .editable-item .item-description {
-  color: var(--text-light);
-  font-size: 0.875rem;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.6;
   flex: 1 1 100%;
   min-width: 200px;
+  margin-top: 4px;
 }
 
 .editable-item input,
@@ -812,8 +933,8 @@ body {
 
 /* 行程项删除按钮样式（优化版） */
 .item-delete-btn {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
   background: transparent;
@@ -824,7 +945,7 @@ body {
   justify-content: center;
   transition: color 0.2s;
   flex-shrink: 0;
-  margin-left: auto; /* 移到右侧 */
+  margin-left: 8px; /* 与行程项右侧保持8px间距 */
 }
 
 .item-delete-btn:hover {
