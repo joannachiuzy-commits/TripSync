@@ -79,10 +79,13 @@ async function generateTrip() {
     // 生成新行程时创建唯一tripId（不复用旧ID）
     currentTripId = 'local_' + Date.now();
     
+    // 清除localStorage中的旧行程数据，确保不继承历史标题
+    localStorage.removeItem('validated_trip');
+    
     // 保存行程原始数据
     currentItineraryData = data.itinerary;
     
-    // 重置标题为默认值"未命名行程"
+    // 强制重置标题为默认值"未命名行程"（不读取缓存）
     const tripTitle = document.getElementById('tripTitle');
     if (tripTitle) {
       tripTitle.textContent = '未命名行程';
@@ -94,13 +97,9 @@ async function generateTrip() {
     const generateResult = document.getElementById('generateResult');
     if (generateResult) {
       generateResult.style.display = 'block';
-      // 如果有行程内容，显示保存按钮和删除按钮
+      // 如果有行程内容，显示保存按钮
       if (data.itinerary && data.itinerary.length > 0) {
         showSaveTripButton();
-        const deleteBtn = document.getElementById('deleteTripBtn');
-        if (deleteBtn) {
-          deleteBtn.style.display = 'block';
-        }
       }
     }
     // 显示生成成功提示，包含使用的模型信息
@@ -151,7 +150,15 @@ function displayItinerary(itinerary) {
             <span class="item-time trip-editable" data-type="time" data-day="${dayIndex}" data-item="${itemIndex}">${item.time || ''}</span>
             <span class="item-place trip-editable" data-type="place" data-day="${dayIndex}" data-item="${itemIndex}">${item.place || '未设置地点'}</span>
             <span class="item-description trip-editable" data-type="description" data-day="${dayIndex}" data-item="${itemIndex}">${item.description || ''}</span>
-            <button class="btn-delete" onclick="handleDeleteTripItem(${dayIndex}, ${itemIndex})">×</button>
+            <button class="item-delete-btn" onclick="handleDeleteTripItem(${dayIndex}, ${itemIndex})" title="删除该行程项目">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5.5 5.5C5.77614 5.5 6 5.72386 6 6V11C6 11.2761 5.77614 11.5 5.5 11.5C5.22386 11.5 5 11.2761 5 11V6C5 5.72386 5.22386 5.5 5.5 5.5Z" fill="currentColor"/>
+                <path d="M8 6C8 5.72386 7.77614 5.5 7.5 5.5C7.22386 5.5 7 5.72386 7 6V11C7 11.2761 7.22386 11.5 7.5 11.5C7.77614 11.5 8 11.2761 8 11V6Z" fill="currentColor"/>
+                <path d="M10.5 5.5C10.7761 5.5 11 5.72386 11 6V11C11 11.2761 10.7761 11.5 10.5 11.5C10.2239 11.5 10 11.2761 10 11V6C10 5.72386 10.2239 5.5 10.5 5.5Z" fill="currentColor"/>
+                <path d="M4 2.5C4 2.22386 4.22386 2 4.5 2H5.5H10.5H11.5C11.7761 2 12 2.22386 12 2.5C12 2.77614 11.7761 3 11.5 3H11V12.5C11 13.3284 10.3284 14 9.5 14H6.5C5.67157 14 5 13.3284 5 12.5V3H4.5C4.22386 3 4 2.77614 4 2.5ZM6 3V12.5C6 12.7761 6.22386 13 6.5 13H9.5C9.77614 13 10 12.7761 10 12.5V3H6Z" fill="currentColor"/>
+                <path d="M6.5 1.5C6.22386 1.5 6 1.72386 6 2V2.5C6 2.77614 6.22386 3 6.5 3H9.5C9.77614 3 10 2.77614 10 2.5V2C10 1.72386 9.77614 1.5 9.5 1.5H6.5Z" fill="currentColor"/>
+              </svg>
+            </button>
           </div>
         `).join('') : '<p class="empty-tip">暂无安排</p>'}
       </div>
@@ -160,12 +167,6 @@ function displayItinerary(itinerary) {
   
   // 初始化编辑功能
   initTripEditFeatures();
-  
-  // 显示删除按钮
-  const deleteBtn = document.getElementById('deleteTripBtn');
-  if (deleteBtn) {
-    deleteBtn.style.display = 'block';
-  }
 }
 
 /**
@@ -227,9 +228,6 @@ function initTripEditFeatures() {
   
   // 初始化内容编辑
   initContentEdit();
-  
-  // 初始化删除功能
-  initDeleteTrip();
   
   // 初始化单个项目删除功能
   initDeleteTripItem();
@@ -390,104 +388,11 @@ function initContentEdit() {
 }
 
 /**
- * 初始化删除行程功能
- */
-function initDeleteTrip() {
-  const deleteBtn = document.getElementById('deleteTripBtn');
-  if (!deleteBtn) return;
-  
-  deleteBtn.addEventListener('click', function() {
-    if (!confirm('确定删除该行程吗？')) {
-      return;
-    }
-    
-    // 清空行程数据
-    currentItineraryData = null;
-    currentTripId = null;
-    
-    // 清空显示
-    const container = document.getElementById('generatedItinerary');
-    if (container) {
-      container.innerHTML = '';
-    }
-    
-    // 隐藏结果区域
-    const generateResult = document.getElementById('generateResult');
-    if (generateResult) {
-      generateResult.style.display = 'none';
-    }
-    
-    // 隐藏保存按钮和删除按钮
-    hideSaveTripButton();
-    deleteBtn.style.display = 'none';
-    
-    // 清除localStorage
-    localStorage.removeItem('validated_trip');
-    
-    window.api.showToast('行程已删除', 'success');
-  });
-}
-
-/**
  * 初始化单个行程项目删除功能
+ * 注意：删除按钮通过onclick直接调用handleDeleteTripItem，这里不再需要事件委托
  */
 function initDeleteTripItem() {
-  const container = document.getElementById('generatedItinerary');
-  if (!container) return;
-  
-  // 使用事件委托处理删除按钮点击
-  // 使用 capture 阶段确保优先处理
-  container.addEventListener('click', function(e) {
-    // 检查点击目标是否是删除按钮或其子元素
-    const deleteBtn = e.target.closest('.trip-item-delete-btn');
-    if (!deleteBtn) return;
-    
-    // 阻止事件冒泡和默认行为
-    e.stopPropagation();
-    e.preventDefault();
-    
-    // 获取要删除的项目信息
-    const dayIndex = parseInt(deleteBtn.dataset.day);
-    const itemIndex = parseInt(deleteBtn.dataset.item);
-    
-    if (isNaN(dayIndex) || isNaN(itemIndex)) {
-      console.error('删除失败：无效的索引', dayIndex, itemIndex);
-      return;
-    }
-    
-    // 弹出确认提示
-    if (!confirm('确定删除该行程项目吗？')) {
-      return;
-    }
-    
-    // 从数据中删除项目
-    if (currentItineraryData && currentItineraryData[dayIndex] && currentItineraryData[dayIndex].items) {
-      const items = currentItineraryData[dayIndex].items;
-      
-      // 验证索引有效性
-      if (itemIndex < 0 || itemIndex >= items.length) {
-        console.error('删除失败：索引超出范围', itemIndex, items.length);
-        return;
-      }
-      
-      // 删除项目
-      items.splice(itemIndex, 1);
-      
-      // 重新渲染行程（这会重新初始化编辑功能）
-      displayItinerary(currentItineraryData);
-      
-      // 更新localStorage
-      updateLocalStorageTripData({ itinerary: currentItineraryData });
-      
-      // 验证删除结果
-      verifyDeleteResult(dayIndex, itemIndex);
-      
-      window.api.showToast('行程项目已删除', 'success');
-    } else {
-      console.error('删除失败：数据不存在', dayIndex, itemIndex);
-      window.api.showToast('删除失败：数据不存在', 'error');
-    }
-  }, true); // 使用 capture 阶段，确保优先处理
+  // 此函数保留用于未来扩展，当前删除功能通过onclick="handleDeleteTripItem()"实现
 }
 
 /**
