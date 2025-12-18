@@ -860,25 +860,32 @@ body {
 }
 
 /* 生成行程页面中的editable-item样式调整 */
+/* 生成行程页面的editable-item紧凑布局 */
 #generatedItinerary .editable-item {
-  flex-wrap: wrap;
-}
-
-#generatedItinerary .editable-item {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border: 1px solid #eee;
   border-radius: 8px;
   margin-bottom: 8px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 12px;
   background: #fff;
   transition: background-color 0.2s;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* 确保同一水平线 */
 }
 
 #generatedItinerary .editable-item:hover {
   background: #f5f5f5;
+}
+
+/* 行程项内容区域（时间+地点+简介） */
+#generatedItinerary .editable-item .trip-item-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-grow: 1;
+  flex-wrap: wrap;
+  min-width: 0; /* 允许内容收缩 */
 }
 
 #generatedItinerary .editable-item .item-time {
@@ -886,23 +893,22 @@ body {
   font-weight: 500;
   color: #28a745;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 #generatedItinerary .editable-item .item-place {
   font-weight: 500;
-  flex: 1;
-  min-width: 100px;
   color: #333;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 #generatedItinerary .editable-item .item-description {
   color: #666;
   font-size: 14px;
-  line-height: 1.6;
-  flex: 1 1 100%;
-  min-width: 200px;
-  margin-top: 4px;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0; /* 允许收缩 */
 }
 
 .editable-item input,
@@ -945,7 +951,11 @@ body {
   justify-content: center;
   transition: color 0.2s;
   flex-shrink: 0;
-  margin-left: 8px; /* 与行程项右侧保持8px间距 */
+}
+
+/* 生成行程页面中的删除按钮靠右对齐 */
+#generatedItinerary .editable-item .item-delete-btn {
+  margin-left: auto; /* 确保靠最右 */
 }
 
 .item-delete-btn:hover {
@@ -1134,12 +1144,13 @@ body {
 
 /* 行程偏好补充模块样式 */
 .preference-module {
-  max-width: 800px;
-  margin: 20px auto;
-  padding: 15px 20px;
-  border: 1px solid #e3f2fd;
-  border-radius: 8px;
-  background: #f8fcff;
+  width: 100%;
+  margin-top: 16px;
+  margin-bottom: 0;
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  background: #fff;
 }
 
 .preference-title {
@@ -1241,8 +1252,17 @@ body {
 }
 
 /* 保存行程按钮样式 */
+/* 行程标题和保存按钮的父容器 */
+.trip-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
 .save-trip-container {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   display: flex;
   align-items: center;
   gap: 0.75rem;

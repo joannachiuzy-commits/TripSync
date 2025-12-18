@@ -147,9 +147,11 @@ function displayItinerary(itinerary) {
       <div class="day-items">
         ${day.items && day.items.length > 0 ? day.items.map((item, itemIndex) => `
           <div class="editable-item" data-day-index="${dayIndex}" data-item-index="${itemIndex}">
-            <span class="item-time trip-editable" data-type="time" data-day="${dayIndex}" data-item="${itemIndex}">${item.time || ''}</span>
-            <span class="item-place trip-editable" data-type="place" data-day="${dayIndex}" data-item="${itemIndex}">${item.place || '未设置地点'}</span>
-            <span class="item-description trip-editable" data-type="description" data-day="${dayIndex}" data-item="${itemIndex}">${item.description || ''}</span>
+            <div class="trip-item-content">
+              <span class="item-time trip-editable" data-type="time" data-day="${dayIndex}" data-item="${itemIndex}">${item.time || ''}</span>
+              <span class="item-place trip-editable" data-type="place" data-day="${dayIndex}" data-item="${itemIndex}">${item.place || '未设置地点'}</span>
+              <span class="item-description trip-editable" data-type="description" data-day="${dayIndex}" data-item="${itemIndex}">${item.description || ''}</span>
+            </div>
             <button class="item-delete-btn" onclick="handleDeleteTripItem(${dayIndex}, ${itemIndex})" title="删除该行程项目">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M5.5 5.5C5.77614 5.5 6 5.72386 6 6V11C6 11.2761 5.77614 11.5 5.5 11.5C5.22386 11.5 5 11.2761 5 11V6C5 5.72386 5.22386 5.5 5.5 5.5Z" fill="currentColor"/>
