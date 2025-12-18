@@ -4,6 +4,7 @@
  */
 
 let currentTripId = null;
+let currentItineraryData = null; // 保存当前生成的行程原始数据
 
 /**
  * 生成行程
@@ -77,12 +78,19 @@ async function generateTrip() {
 
     currentTripId = data.tripId;
     
+    // 保存行程原始数据
+    currentItineraryData = data.itinerary;
+    
     // 显示生成结果
     displayItinerary(data.itinerary);
     
     const generateResult = document.getElementById('generateResult');
     if (generateResult) {
       generateResult.style.display = 'block';
+      // 如果有行程内容，显示保存按钮
+      if (data.itinerary && data.itinerary.length > 0) {
+        showSaveTripButton();
+      }
     }
     // 显示生成成功提示，包含使用的模型信息
     const modelName = data.modelName || 'AI';
@@ -118,6 +126,8 @@ function displayItinerary(itinerary) {
   
   if (!itinerary || itinerary.length === 0) {
     container.innerHTML = '<p class="empty-tip">未生成行程数据</p>';
+    // 隐藏保存按钮
+    hideSaveTripButton();
     return;
   }
 
@@ -210,6 +220,87 @@ function initPreferenceModule() {
 }
 
 /**
+ * 显示保存行程按钮
+ */
+function showSaveTripButton() {
+  const saveContainer = document.querySelector('.save-trip-container');
+  if (saveContainer) {
+    saveContainer.style.display = 'flex';
+    // 重置按钮状态
+    const saveBtn = document.getElementById('saveGeneratedTripBtn');
+    const saveTip = document.querySelector('.save-trip-container .save-trip-tip');
+    if (saveBtn) {
+      saveBtn.textContent = '保存行程';
+      saveBtn.disabled = false;
+    }
+    if (saveTip) {
+      saveTip.style.display = 'none';
+    }
+  }
+}
+
+/**
+ * 隐藏保存行程按钮
+ */
+function hideSaveTripButton() {
+  const saveContainer = document.querySelector('.save-trip-container');
+  if (saveContainer) {
+    saveContainer.style.display = 'none';
+  }
+}
+
+/**
+ * 处理保存行程
+ */
+function handleSaveTrip() {
+  try {
+    // 获取所有需要保存的数据
+    const daysInput = document.getElementById('tripDays');
+    const budgetInput = document.getElementById('tripBudget');
+    const modelTypeSelect = document.getElementById('modelTypeSelect');
+    const preferenceInput = document.getElementById('preferenceInput');
+    const generatedItinerary = document.getElementById('generatedItinerary');
+    
+    if (!daysInput || !generatedItinerary || !currentItineraryData) {
+      window.api.showToast('保存失败：缺少必要数据', 'error');
+      return;
+    }
+    
+    const tripData = {
+      days: parseInt(daysInput.value) || 0,
+      budget: budgetInput ? budgetInput.value.trim() : '',
+      modelType: modelTypeSelect ? modelTypeSelect.value : 'auto',
+      preference: preferenceInput ? preferenceInput.value.trim() : '',
+      itinerary: currentItineraryData, // 保存原始行程数据
+      itineraryHtml: generatedItinerary.innerHTML, // 保存HTML内容
+      savedAt: new Date().toISOString() // 保存时间
+    };
+    
+    // 存储到localStorage
+    localStorage.setItem('validated_trip', JSON.stringify(tripData));
+    
+    // 更新按钮状态
+    const saveBtn = document.getElementById('saveGeneratedTripBtn');
+    const saveTip = document.querySelector('.save-trip-container .save-trip-tip');
+    
+    if (saveBtn) {
+      saveBtn.textContent = '已生效';
+      saveBtn.disabled = true;
+    }
+    
+    if (saveTip) {
+      saveTip.style.display = 'inline';
+    }
+    
+    window.api.showToast('行程已保存', 'success');
+    console.log('✅ 行程已保存到localStorage');
+  } catch (error) {
+    console.error('保存行程错误：', error);
+    window.api.showToast('保存失败：' + (error.message || '未知错误'), 'error');
+  }
+}
+
+/**
  * 初始化行程生成模块
  */
 function initTripGenerate() {
@@ -239,6 +330,13 @@ function initTripGenerate() {
     generateBtn.removeEventListener('click', generateTrip);
     generateBtn.addEventListener('click', generateTrip);
     
+    // 初始化保存行程按钮
+    const saveBtn = document.getElementById('saveGeneratedTripBtn');
+    if (saveBtn) {
+      saveBtn.removeEventListener('click', handleSaveTrip);
+      saveBtn.addEventListener('click', handleSaveTrip);
+    }
+    
     // 初始化偏好模块交互逻辑
     initPreferenceModule();
     
@@ -256,7 +354,10 @@ function initTripGenerate() {
 window.tripGenerateModule = {
   generateTrip,
   displayItinerary,
-  initTripGenerate
+  initTripGenerate,
+  handleSaveTrip,
+  showSaveTripButton,
+  hideSaveTripButton
 };
 
 // 页面加载时检查当前激活的标签是否为"生成行程"，如果是则初始化
