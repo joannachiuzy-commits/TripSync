@@ -9,26 +9,49 @@ let currentEditTrip = null;
  * 加载行程列表
  */
 async function loadTripList() {
-  const user = window.userModule.getCurrentUser();
-  if (!user) {
-    return;
-  }
-
+  const selector = document.getElementById('tripSelector');
+  if (!selector) return;
+  
+  selector.innerHTML = '<option value="">请选择行程</option>';
+  
+  // 从localStorage读取已保存的行程
   try {
-    const data = await window.api.get('/trip/list', { userId: user.userId });
-    const trips = data.trips || [];
-
-    const selector = document.getElementById('tripSelector');
-    selector.innerHTML = '<option value="">请选择行程</option>';
-    
-    trips.forEach(trip => {
-      const option = document.createElement('option');
-      option.value = trip.tripId;
-      option.textContent = `${trip.title || '未命名行程'} (${trip.days || 0}天)`;
-      selector.appendChild(option);
-    });
+    const listData = localStorage.getItem('trip_list');
+    if (listData) {
+      const localTrips = JSON.parse(listData);
+      localTrips.forEach(trip => {
+        const option = document.createElement('option');
+        option.value = trip.tripId;
+        option.textContent = `${trip.title || '未命名行程'} (${trip.days || 0}天)`;
+        option.dataset.source = 'local';
+        selector.appendChild(option);
+      });
+    }
   } catch (error) {
-    console.error('加载行程列表失败:', error);
+    console.error('加载localStorage行程列表失败:', error);
+  }
+  
+  // 从后端API读取行程（如果用户已登录）
+  const user = window.userModule.getCurrentUser();
+  if (user) {
+    try {
+      const data = await window.api.get('/trip/list', { userId: user.userId });
+      const trips = data.trips || [];
+      
+      trips.forEach(trip => {
+        // 检查是否已存在（避免重复）
+        const existing = Array.from(selector.options).find(opt => opt.value === trip.tripId);
+        if (!existing) {
+          const option = document.createElement('option');
+          option.value = trip.tripId;
+          option.textContent = `${trip.title || '未命名行程'} (${trip.days || 0}天)`;
+          option.dataset.source = 'server';
+          selector.appendChild(option);
+        }
+      });
+    } catch (error) {
+      console.error('加载服务器行程列表失败:', error);
+    }
   }
 }
 
