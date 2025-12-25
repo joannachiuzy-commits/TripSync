@@ -459,7 +459,7 @@ function updateLocalStorageTripData(updates) {
 }
 
 /**
- * 保存行程到行程列表
+ * 保存行程到行程列表（保存完整数据，包含itinerary）
  */
 function saveTripToList(tripData) {
   try {
@@ -470,19 +470,44 @@ function saveTripToList(tripData) {
       tripList = JSON.parse(listData);
     }
     
-    // 查找是否已存在（根据tripId）
-    const existingIndex = tripList.findIndex(t => t.tripId === tripData.tripId);
+    // 查找是否已存在（根据tripId，使用字符串比较确保类型兼容）
+    const tripIdStr = String(tripData.tripId);
+    const existingIndex = tripList.findIndex(t => String(t.tripId) === tripIdStr);
     
+    // 统一日期格式为YYYY-MM-DD，确保与编辑页面兼容
+    let normalizedItinerary = [];
+    if (tripData.itinerary && Array.isArray(tripData.itinerary)) {
+      normalizedItinerary = tripData.itinerary.map((day, index) => ({
+        day: day.day || index + 1,
+        date: day.date || new Date().toISOString().split('T')[0], // 确保日期格式为YYYY-MM-DD
+        items: (day.items || []).map(item => ({
+          time: item.time || '00:00',
+          place: item.place || '未命名地点',
+          description: item.description || ''
+        }))
+      }));
+    }
+    
+    // 获取当前用户ID（如果存在）
+    const currentUser = window.userModule?.getCurrentUser();
+    const userId = currentUser?.userId || currentUser?.guestId || null;
+    
+    // 构建完整的行程列表项（包含itinerary数据，供编辑页面使用）
     const tripListItem = {
       tripId: tripData.tripId,
       title: tripData.title || '未命名行程',
-      days: tripData.days || 0,
-      savedAt: tripData.savedAt || new Date().toISOString()
+      days: tripData.days || normalizedItinerary.length || 0,
+      itinerary: normalizedItinerary, // 保存完整的itinerary数据
+      savedAt: tripData.savedAt || new Date().toISOString(),
+      userId: userId // 保存用户ID，供权限校验使用
     };
     
     if (existingIndex >= 0) {
-      // 更新现有项
-      tripList[existingIndex] = tripListItem;
+      // 更新现有项（合并数据，保留原有字段）
+      tripList[existingIndex] = {
+        ...tripList[existingIndex],
+        ...tripListItem
+      };
     } else {
       // 添加新项
       tripList.push(tripListItem);
@@ -490,6 +515,7 @@ function saveTripToList(tripData) {
     
     // 保存回localStorage
     localStorage.setItem('trip_list', JSON.stringify(tripList));
+    console.log('✅ 已保存完整行程数据到trip_list，包含itinerary');
   } catch (error) {
     console.error('保存行程列表失败：', error);
   }
@@ -621,14 +647,28 @@ function handleSaveTrip() {
     // 使用当前tripId（新生成的行程已有唯一ID）
     let tripId = currentTripId || 'local_' + Date.now();
     
+    // 计算实际天数（基于itinerary长度，确保数据准确）
+    const actualDays = currentItineraryData ? currentItineraryData.length : parseInt(daysInput.value) || 0;
+    
+    // 统一日期格式为YYYY-MM-DD，确保与编辑页面兼容
+    const normalizedItinerary = currentItineraryData ? currentItineraryData.map((day, index) => ({
+      day: day.day || index + 1,
+      date: day.date || new Date().toISOString().split('T')[0], // 确保日期格式为YYYY-MM-DD
+      items: (day.items || []).map(item => ({
+        time: item.time || '00:00',
+        place: item.place || '未命名地点',
+        description: item.description || ''
+      }))
+    })) : [];
+    
     const tripData = {
       tripId: tripId, // 行程ID
       title: title, // 保存标题
-      days: parseInt(daysInput.value) || 0,
+      days: actualDays, // 使用实际天数
       budget: budgetInput ? budgetInput.value.trim() : '',
       modelType: modelTypeSelect ? modelTypeSelect.value : 'auto',
       preference: preferenceInput ? preferenceInput.value.trim() : '',
-      itinerary: currentItineraryData, // 保存原始行程数据
+      itinerary: normalizedItinerary, // 保存标准化后的行程数据
       itineraryHtml: generatedItinerary.innerHTML, // 保存HTML内容
       savedAt: new Date().toISOString() // 保存时间
     };
@@ -636,7 +676,7 @@ function handleSaveTrip() {
     // 存储到localStorage（当前行程）
     localStorage.setItem('validated_trip', JSON.stringify(tripData));
     
-    // 保存到行程列表
+    // 保存到行程列表（包含完整itinerary数据）
     saveTripToList(tripData);
     
     // 更新按钮状态
@@ -743,12 +783,23 @@ async function generateManualTrip() {
       tripTitleElement.textContent = finalTitle;
     }
     
-    // 步骤5：保存到localStorage（与AI生成行程的保存逻辑一致）
+    // 步骤5：统一数据格式（确保日期格式为YYYY-MM-DD，与编辑页面兼容）
+    const normalizedItinerary = parsedData.itinerary ? parsedData.itinerary.map((day, index) => ({
+      day: day.day || index + 1,
+      date: day.date || new Date().toISOString().split('T')[0], // 确保日期格式为YYYY-MM-DD
+      items: (day.items || []).map(item => ({
+        time: item.time || '00:00',
+        place: item.place || '未命名地点',
+        description: item.description || ''
+      }))
+    })) : [];
+    
+    // 步骤6：保存到localStorage（与AI生成行程的保存逻辑一致）
     const tripData = {
       tripId: newTripId,
       title: finalTitle,
-      days: parsedData.days || parsedData.itinerary.length,
-      itinerary: parsedData.itinerary,
+      days: parsedData.days || normalizedItinerary.length,
+      itinerary: normalizedItinerary,
       itineraryHtml: document.getElementById('generatedItinerary').innerHTML,
       savedAt: new Date().toISOString()
     };

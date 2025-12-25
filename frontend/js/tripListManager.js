@@ -123,15 +123,7 @@ async function selectTrip(tripId) {
   const tripIdStr = String(tripId);
   selectedTripId = tripIdStr;
   
-  // 使用字符串比较，兼容不同类型的tripId
-  const trip = allTrips.find(t => String(t.tripId) === tripIdStr);
-  
-  if (!trip) {
-    window.api.showToast('行程不存在', 'error');
-    return;
-  }
-  
-  // 更新选中状态UI（使用字符串比较）
+  // 【修复】先更新选中状态UI（即使行程数据还没加载，也要先更新UI）
   document.querySelectorAll('.trip-item').forEach(item => {
     if (String(item.dataset.tripId) === tripIdStr) {
       item.classList.add('selected');
@@ -148,12 +140,75 @@ async function selectTrip(tripId) {
   
   // 加载行程详情
   try {
-    let tripData = trip;
+    let tripData = null;
+    
+    // 步骤1：先从allTrips中查找（如果已加载）
+    let trip = allTrips.find(t => String(t.tripId) === tripIdStr);
+    
+    // 步骤2：如果allTrips中找不到，尝试从localStorage加载（修复：不立即返回错误，先尝试加载）
+    if (!trip) {
+      try {
+        const listData = localStorage.getItem('trip_list');
+        if (listData) {
+          const tripList = JSON.parse(listData);
+          trip = tripList.find(t => String(t.tripId) === tripIdStr);
+          // 如果找到了，添加到allTrips中（避免下次再找不到）
+          if (trip) {
+            allTrips.push({ ...trip, source: 'local' });
+          }
+        }
+      } catch (error) {
+        console.warn('从localStorage查找行程失败:', error);
+      }
+    }
+    
+    // 步骤3：如果仍然找不到，尝试从后端API获取
+    if (!trip) {
+      try {
+        const data = await window.api.get('/trip/get', { tripId: tripIdStr });
+        if (data && data.trip) {
+          trip = data.trip;
+          // 添加到allTrips中
+          allTrips.push({ ...trip, source: 'server' });
+        }
+      } catch (apiError) {
+        console.warn('从后端API查找行程失败:', apiError);
+      }
+    }
+    
+    // 步骤4：如果最终仍然找不到行程，才显示"行程不存在"错误
+    if (!trip) {
+      window.api.showToast('行程不存在', 'error');
+      return;
+    }
+    
+    // 步骤5：使用找到的行程数据继续处理
+    tripData = { ...trip }; // 复制对象，避免修改原对象
+    // 统一tripId格式为字符串
+    tripData.tripId = String(tripData.tripId);
     
     // 如果有itinerary数据，直接使用；否则从API获取
-    if (!trip.itinerary || trip.itinerary.length === 0) {
-      const data = await window.api.get('/trip/get', { tripId: tripIdStr });
-      tripData = data.trip;
+    if (!tripData.itinerary || !Array.isArray(tripData.itinerary) || tripData.itinerary.length === 0) {
+      try {
+        const currentUser = window.userModule?.getCurrentUser();
+        const userId = currentUser?.userId ? String(currentUser.userId) : null;
+        
+        const data = await window.api.get('/trip/get', { 
+          tripId: tripIdStr,
+          userId: userId
+        });
+        if (data && data.trip) {
+          tripData = data.trip;
+          // 统一后端返回的tripId为字符串
+          tripData.tripId = String(tripData.tripId);
+        }
+      } catch (apiError) {
+        console.error('从API加载完整行程数据失败:', apiError);
+        // 如果API加载失败但已有基础数据，继续使用基础数据（避免完全失败）
+        if (!tripData.itinerary) {
+          throw new Error('无法加载行程详情数据');
+        }
+      }
     }
     
     // 修复：补全缺失的权限字段（兼容旧数据）
@@ -174,15 +229,13 @@ async function selectTrip(tripId) {
       tripData.days = tripData.itinerary.length;
     }
     
-    // 设置当前编辑的行程（供tripEdit.js使用）
+    // 设置当前编辑的行程（供tripEdit.js使用），统一tripId格式
     if (window.tripEditModule) {
       window.tripEditModule.currentEditTrip = tripData;
     }
     
     // 同时设置全局变量（向后兼容）
-    if (typeof currentEditTrip !== 'undefined') {
-      window.currentEditTrip = tripData;
-    }
+    window.currentEditTrip = tripData;
     
     // 新增：权限校验+按钮状态控制
     if (window.tripEditModule && window.tripEditModule.checkTripModifyPermission) {
@@ -207,6 +260,11 @@ async function selectTrip(tripId) {
     const editEmpty = document.getElementById('editTripEmpty');
     if (editContainer) editContainer.style.display = 'block';
     if (editEmpty) editEmpty.style.display = 'none';
+    
+    // 【修复】存储当前加载的行程ID到全局变量，供其他模块使用（避免重复校验）
+    // 统一tripId格式为字符串
+    window.currentLoadedTripId = String(tripData.tripId);
+    tripData.tripId = String(tripData.tripId);
     
     // 存储当前编辑行程的tripId到编辑面板（用于保存时获取）
     const editPanel = document.querySelector('.trip-edit-panel');

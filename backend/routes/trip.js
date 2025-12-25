@@ -179,6 +179,7 @@ router.get('/list', async (req, res) => {
 router.get('/get', async (req, res) => {
   try {
     const { tripId } = req.query;
+    const userId = getUserId(req); // 获取当前用户ID（关联用户）
 
     if (!tripId) {
       return res.json({
@@ -188,13 +189,28 @@ router.get('/get', async (req, res) => {
       });
     }
 
-    const trip = await findJsonArrayItem('trips.json', 'tripId', tripId);
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户身份未识别'
+      });
+    }
+
+    // 核心修改1：统一tripId格式为字符串，兼容前后端格式差异
+    const tripIdStr = String(tripId);
+
+    // 核心修改2：读取所有行程，使用字符串格式匹配tripId，同时匹配userId，确保归属正确
+    const trips = await readJsonFile('trips.json');
+    const trip = trips.find(t => 
+      String(t.tripId) === tripIdStr && t.userId === userId
+    );
 
     if (!trip) {
       return res.json({
         code: 1,
         data: null,
-        msg: '行程不存在'
+        msg: '行程不存在（或无权访问）' // 优化提示，区分不存在和无权限
       });
     }
 

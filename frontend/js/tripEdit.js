@@ -20,6 +20,7 @@ function getCurrentLoginUserId() {
 
 /**
  * 检查当前用户是否有权修改该行程（带调试日志）
+ * 【修复】优先复用前端已加载的行程数据，避免重复调用后端接口
  * @param {string|number} tripId 行程ID
  * @returns {Promise<boolean>} 是否有权限
  */
@@ -32,42 +33,74 @@ async function checkTripModifyPermission(tripId) {
       return false;
     }
 
-    // 从后端获取行程详情（包含userId字段）
-    const data = await window.api.get('/trip/get', { tripId });
-    const trip = data.trip;
+    // 统一tripId格式为字符串
+    const tripIdStr = String(tripId);
 
-    if (!trip) {
-      console.log('权限校验调试：行程不存在，tripId:', tripId);
-      return false;
+    // 核心修改1：优先复用前端已加载的行程数据（currentEditTrip），避免重复调用后端接口
+    if (currentEditTrip && String(currentEditTrip.tripId) === tripIdStr) {
+      // 补全权限字段（兼容旧数据）
+      const trip = {
+        ...currentEditTrip,
+        creatorId: currentEditTrip.creatorId || currentEditTrip.userId || currentUserId,
+        collaborators: currentEditTrip.collaborators || []
+      };
+      
+      // 权限规则：创建者或协作者可修改
+      const isCreator = (trip.creatorId === currentUserId) || (trip.userId === currentUserId);
+      const isCollaborator = Array.isArray(trip.collaborators) && trip.collaborators.includes(currentUserId);
+      const hasPermission = isCreator || isCollaborator;
+
+      console.log('权限校验调试：复用前端已加载数据，权限结果:', {
+        currentUserId,
+        tripId: tripIdStr,
+        tripCreatorId: trip.creatorId,
+        tripUserId: trip.userId,
+        hasPermission
+      });
+
+      return hasPermission;
     }
 
-    // 补全缺失的权限字段（兼容旧数据）
-    // 如果旧行程没有creatorId，使用userId作为creatorId
-    if (!trip.hasOwnProperty('creatorId')) {
-      trip.creatorId = trip.userId || currentUserId;
+    // 核心修改2：仅当未加载数据时，才调用后端接口，且传递字符串格式的tripId和userId
+    try {
+      const data = await window.api.get('/trip/get', { 
+        tripId: tripIdStr, // 统一转为字符串
+        userId: currentUserId // 传递用户ID，供后端校验归属
+      });
+      const trip = data.trip;
+
+      if (!trip) {
+        console.log('权限校验调试：后端未找到行程，tripId:', tripIdStr);
+        return false;
+      }
+
+      // 补全权限字段（兼容旧数据）
+      trip.creatorId = trip.creatorId || trip.userId || currentUserId;
+      trip.collaborators = trip.collaborators || [];
+
+      // 权限规则：创建者或协作者可修改
+      const isCreator = (trip.creatorId === currentUserId) || (trip.userId === currentUserId);
+      const isCollaborator = Array.isArray(trip.collaborators) && trip.collaborators.includes(currentUserId);
+      const hasPermission = isCreator || isCollaborator;
+
+      console.log('权限校验调试（后端接口）：', {
+        currentUserId,
+        tripId: tripIdStr,
+        tripCreatorId: trip.creatorId,
+        tripUserId: trip.userId,
+        hasPermission
+      });
+
+      return hasPermission;
+    } catch (apiError) {
+      // 若后端返回"行程不存在"，但前端已加载成功，允许继续操作
+      if (apiError.message?.includes('行程不存在') || apiError.message?.includes('无权访问')) {
+        console.warn('权限校验警告：后端未找到行程，但前端可能已加载本地数据，允许继续操作');
+        // 如果前端已加载数据，返回true；否则返回false
+        return currentEditTrip && String(currentEditTrip.tripId) === tripIdStr;
+      }
+      throw apiError; // 其他错误继续抛出
     }
-    if (!trip.hasOwnProperty('collaborators')) {
-      trip.collaborators = [];
-    }
-
-    // 权限规则：行程创建者（creatorId或userId匹配）或协作者可修改
-    const isCreator = (trip.creatorId === currentUserId) || (trip.userId === currentUserId);
-    const isCollaborator = Array.isArray(trip.collaborators) && trip.collaborators.includes(currentUserId);
-    const hasPermission = isCreator || isCollaborator;
-
-    // 调试日志
-    console.log('权限校验调试：', {
-      currentUserId,
-      tripId,
-      tripCreatorId: trip.creatorId || trip.userId,
-      tripUserId: trip.userId,
-      tripCollaborators: trip.collaborators,
-      isCreator,
-      isCollaborator,
-      hasPermission
-    });
-
-    return hasPermission;
   } catch (error) {
     console.error('权限校验失败:', error);
     return false;
@@ -127,6 +160,7 @@ async function loadTripList() {
 /**
  * 加载行程详情
  * 【游客权限逻辑】游客模式下需要登录才能加载行程进行编辑
+ * 【修复】优先从localStorage的trip_list加载完整数据，如果没有完整数据再调用后端API
  */
 async function loadTrip() {
   // 【游客权限逻辑】检查是否为游客模式，游客无法编辑行程
@@ -143,21 +177,85 @@ async function loadTrip() {
   }
 
   try {
-    // 修复：获取当前用户ID，确保与后端一致
-    const currentUser = window.userModule?.getCurrentUser();
-    let userId = null;
-    if (currentUser && currentUser.userId) {
-      userId = currentUser.userId;
-    }
-
-    // 调用后端接口获取行程（携带用户ID，确保权限校验通过）
-    const data = await window.api.get('/trip/get', { 
-      tripId,
-      userId: userId // 新增：传递用户ID
-    });
-    currentEditTrip = data.trip;
+    // 核心修改1：统一tripId为字符串格式
+    const tripIdStr = String(tripId);
+    let tripData = null;
     
-    // 修复：补全缺失的权限字段（兼容旧数据）
+    // 步骤1：优先从localStorage的trip_list加载完整数据
+    try {
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        const tripList = JSON.parse(listData);
+        // 用字符串匹配查找localStorage中的行程
+        const localTrip = tripList.find(t => String(t.tripId) === tripIdStr);
+        
+        // 检查是否有完整的itinerary数据
+        if (localTrip && localTrip.itinerary && Array.isArray(localTrip.itinerary) && localTrip.itinerary.length > 0) {
+          tripData = { ...localTrip };
+          // 统一localTrip的tripId为字符串
+          tripData.tripId = String(tripData.tripId);
+          console.log('✅ 从localStorage加载完整行程数据（格式统一）:', tripIdStr);
+        }
+      }
+    } catch (error) {
+      console.warn('从localStorage加载行程失败:', error);
+    }
+    
+    // 步骤2：如果localStorage中没有完整数据，从后端API获取（传递字符串tripId）
+    if (!tripData) {
+      const currentUser = window.userModule?.getCurrentUser();
+      const userId = currentUser?.userId ? String(currentUser.userId) : null;
+
+      try {
+        const data = await window.api.get('/trip/get', { 
+          tripId: tripIdStr, // 传递字符串格式
+          userId: userId
+        });
+        tripData = data.trip;
+        // 统一后端返回的tripId为字符串
+        if (tripData) {
+          tripData.tripId = String(tripData.tripId);
+        }
+        console.log('✅ 从后端API加载行程数据（格式统一）:', tripIdStr);
+      } catch (apiError) {
+        console.error('从后端API加载行程失败:', apiError);
+        // 若后端返回"行程不存在"，但localStorage有数据，忽略错误
+        if (tripData) {
+          console.warn('⚠️ 后端提示行程不存在，但本地有数据，继续使用本地数据');
+        } else {
+          throw new Error(`加载行程失败：${apiError.message || '未找到该行程'}`);
+        }
+      }
+    }
+    
+    // 步骤3：校验行程数据完整性
+    if (!tripData) {
+      throw new Error('未找到行程数据');
+    }
+    
+    if (!tripData.itinerary || !Array.isArray(tripData.itinerary)) {
+      throw new Error('行程数据格式错误：缺少itinerary字段或格式不正确');
+    }
+    
+    // 步骤4：补全缺失字段，统一数据格式
+    // 核心修改2：统一currentEditTrip的tripId为字符串
+    currentEditTrip = {
+      ...tripData,
+      tripId: tripIdStr, // 强制使用统一的字符串格式
+      title: tripData.title || '未命名行程',
+      days: tripData.days || tripData.itinerary.length,
+      itinerary: tripData.itinerary.map((day, index) => ({
+        day: day.day || index + 1,
+        date: day.date || new Date().toISOString().split('T')[0], // 确保日期格式为YYYY-MM-DD
+        items: (day.items || []).map(item => ({
+          time: item.time || '00:00',
+          place: item.place || '未命名地点',
+          description: item.description || ''
+        }))
+      }))
+    };
+    
+    // 步骤5：补全缺失的权限字段（兼容旧数据）
     if (!currentEditTrip.hasOwnProperty('creatorId')) {
       const currentUserId = getCurrentLoginUserId();
       currentEditTrip.creatorId = currentEditTrip.userId || currentUserId;
@@ -166,7 +264,7 @@ async function loadTrip() {
       currentEditTrip.collaborators = [];
     }
     
-    // 加载后先过滤空天数
+    // 步骤6：过滤空天数（移除无项目的天数）
     if (currentEditTrip.itinerary && Array.isArray(currentEditTrip.itinerary)) {
       currentEditTrip.itinerary = currentEditTrip.itinerary.filter(day => {
         return day.items && Array.isArray(day.items) && day.items.length > 0;
@@ -175,14 +273,34 @@ async function loadTrip() {
       currentEditTrip.days = currentEditTrip.itinerary.length;
     }
     
-    // 新增：权限校验+按钮状态控制
-    const hasPermission = await checkTripModifyPermission(tripId);
+    // 步骤7：权限校验+按钮状态控制
+    const hasPermission = await checkTripModifyPermission(tripIdStr);
     updateModifyButtonsState(hasPermission);
     
+    // 步骤8：【修复】更新全局变量和DOM属性（均为字符串格式）
+    window.currentLoadedTripId = tripIdStr;
+    
+    // 存储当前编辑行程的tripId到编辑面板（用于保存时获取）
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    if (editPanel) editPanel.dataset.currentTripId = tripIdStr;
+    if (editContainer) editContainer.dataset.currentTripId = tripIdStr;
+    
+    // 步骤9：渲染行程
     displayEditItinerary(currentEditTrip.itinerary, currentEditTrip);
     document.getElementById('editTripContainer').style.display = 'block';
+    
+    console.log('✅ 行程加载成功（格式统一）:', {
+      tripId: tripIdStr,
+      title: currentEditTrip.title,
+      days: currentEditTrip.days,
+      itineraryLength: currentEditTrip.itinerary.length,
+      currentLoadedTripId: window.currentLoadedTripId,
+      tripIdType: typeof currentEditTrip.tripId
+    });
   } catch (error) {
-    // 错误已在 api.js 中处理
+    console.error('❌ 加载行程失败:', error);
+    window.api.showToast(error.message || '加载行程失败', 'error');
   }
 }
 
@@ -285,16 +403,23 @@ async function addTripItem(dayIndex) {
   }
 
   // 【权限校验】检查是否有权限修改该行程
-  const editPanel = document.querySelector('.trip-edit-panel');
-  const editContainer = document.getElementById('editTripContainer');
+  // 【修复】优先使用全局变量（加载成功后设置的行程ID）
   let currentTripId = null;
   
-  if (editPanel && editPanel.dataset.currentTripId) {
-    currentTripId = editPanel.dataset.currentTripId;
-  } else if (editContainer && editContainer.dataset.currentTripId) {
-    currentTripId = editContainer.dataset.currentTripId;
-  } else if (currentEditTrip && currentEditTrip.tripId) {
-    currentTripId = String(currentEditTrip.tripId);
+  if (window.currentLoadedTripId) {
+    currentTripId = String(window.currentLoadedTripId);
+  } else {
+    // 备用方案：从DOM属性获取
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    
+    if (editPanel && editPanel.dataset.currentTripId) {
+      currentTripId = editPanel.dataset.currentTripId;
+    } else if (editContainer && editContainer.dataset.currentTripId) {
+      currentTripId = editContainer.dataset.currentTripId;
+    } else if (currentEditTrip && currentEditTrip.tripId) {
+      currentTripId = String(currentEditTrip.tripId);
+    }
   }
 
   if (currentTripId) {
@@ -360,24 +485,31 @@ function updateItemIndexes(dayIndex) {
  */
 async function saveTrip() {
   try {
-    // 1. 获取当前编辑行程的tripId（优先从DOM属性获取，其次从currentEditTrip）
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
+    // 1. 获取当前编辑行程的tripId（优先使用全局变量，其次从DOM属性获取，最后从currentEditTrip）
     let currentTripId = null;
     
-    if (editPanel && editPanel.dataset.currentTripId) {
-      currentTripId = editPanel.dataset.currentTripId;
-    } else if (editContainer && editContainer.dataset.currentTripId) {
-      currentTripId = editContainer.dataset.currentTripId;
-    } else if (currentEditTrip && currentEditTrip.tripId) {
-      currentTripId = String(currentEditTrip.tripId);
+    // 【修复】优先使用全局变量（加载成功后设置的行程ID）
+    if (window.currentLoadedTripId) {
+      currentTripId = String(window.currentLoadedTripId);
+    } else {
+      // 备用方案：从DOM属性获取
+      const editPanel = document.querySelector('.trip-edit-panel');
+      const editContainer = document.getElementById('editTripContainer');
+      
+      if (editPanel && editPanel.dataset.currentTripId) {
+        currentTripId = editPanel.dataset.currentTripId;
+      } else if (editContainer && editContainer.dataset.currentTripId) {
+        currentTripId = editContainer.dataset.currentTripId;
+      } else if (currentEditTrip && currentEditTrip.tripId) {
+        currentTripId = String(currentEditTrip.tripId);
+      }
     }
     
     if (!currentTripId) {
-      window.api.showToast('保存失败：未找到当前编辑行程的ID', 'error');
-      console.error('保存失败：无法获取tripId');
-    return;
-  }
+      window.api.showToast('保存失败：未找到当前编辑行程的ID，请先加载行程', 'error');
+      console.error('保存失败：无法获取tripId，window.currentLoadedTripId:', window.currentLoadedTripId);
+      return;
+    }
 
     // 2. 收集编辑后的行程数据（与生成行程格式一致）
   const itinerary = [];
@@ -576,17 +708,23 @@ async function handleSmartOptimize() {
     const selectedCheckboxes = document.querySelectorAll('.favorite-checkbox:checked');
     const collectionIds = Array.from(selectedCheckboxes).map(checkbox => checkbox.value);
 
-    // 2. 基础校验
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
+    // 2. 基础校验（优先使用全局变量）
     let currentTripId = null;
     
-    if (editPanel && editPanel.dataset.currentTripId) {
-      currentTripId = editPanel.dataset.currentTripId;
-    } else if (editContainer && editContainer.dataset.currentTripId) {
-      currentTripId = editContainer.dataset.currentTripId;
-    } else if (currentEditTrip && currentEditTrip.tripId) {
-      currentTripId = String(currentEditTrip.tripId);
+    if (window.currentLoadedTripId) {
+      currentTripId = String(window.currentLoadedTripId);
+    } else {
+      // 备用方案：从DOM属性获取
+      const editPanel = document.querySelector('.trip-edit-panel');
+      const editContainer = document.getElementById('editTripContainer');
+      
+      if (editPanel && editPanel.dataset.currentTripId) {
+        currentTripId = editPanel.dataset.currentTripId;
+      } else if (editContainer && editContainer.dataset.currentTripId) {
+        currentTripId = editContainer.dataset.currentTripId;
+      } else if (currentEditTrip && currentEditTrip.tripId) {
+        currentTripId = String(currentEditTrip.tripId);
+      }
     }
 
     if (!currentTripId) {
@@ -770,17 +908,23 @@ async function handleFavoriteOptimize() {
   }
 
   try {
-    // 获取当前编辑行程的tripId
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
+    // 获取当前编辑行程的tripId（优先使用全局变量）
     let currentTripId = null;
     
-    if (editPanel && editPanel.dataset.currentTripId) {
-      currentTripId = editPanel.dataset.currentTripId;
-    } else if (editContainer && editContainer.dataset.currentTripId) {
-      currentTripId = editContainer.dataset.currentTripId;
-    } else if (currentEditTrip && currentEditTrip.tripId) {
-      currentTripId = String(currentEditTrip.tripId);
+    if (window.currentLoadedTripId) {
+      currentTripId = String(window.currentLoadedTripId);
+    } else {
+      // 备用方案：从DOM属性获取
+      const editPanel = document.querySelector('.trip-edit-panel');
+      const editContainer = document.getElementById('editTripContainer');
+      
+      if (editPanel && editPanel.dataset.currentTripId) {
+        currentTripId = editPanel.dataset.currentTripId;
+      } else if (editContainer && editContainer.dataset.currentTripId) {
+        currentTripId = editContainer.dataset.currentTripId;
+      } else if (currentEditTrip && currentEditTrip.tripId) {
+        currentTripId = String(currentEditTrip.tripId);
+      }
     }
 
     if (!currentTripId) {
@@ -941,17 +1085,23 @@ async function handleAgentModify() {
   }
 
   try {
-    // 1. 获取当前编辑行程的tripId
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
+    // 1. 获取当前编辑行程的tripId（优先使用全局变量）
     let currentTripId = null;
     
-    if (editPanel && editPanel.dataset.currentTripId) {
-      currentTripId = editPanel.dataset.currentTripId;
-    } else if (editContainer && editContainer.dataset.currentTripId) {
-      currentTripId = editContainer.dataset.currentTripId;
-    } else if (currentEditTrip && currentEditTrip.tripId) {
-      currentTripId = String(currentEditTrip.tripId);
+    if (window.currentLoadedTripId) {
+      currentTripId = String(window.currentLoadedTripId);
+    } else {
+      // 备用方案：从DOM属性获取
+      const editPanel = document.querySelector('.trip-edit-panel');
+      const editContainer = document.getElementById('editTripContainer');
+      
+      if (editPanel && editPanel.dataset.currentTripId) {
+        currentTripId = editPanel.dataset.currentTripId;
+      } else if (editContainer && editContainer.dataset.currentTripId) {
+        currentTripId = editContainer.dataset.currentTripId;
+      } else if (currentEditTrip && currentEditTrip.tripId) {
+        currentTripId = String(currentEditTrip.tripId);
+      }
     }
     
     if (!currentTripId) {
