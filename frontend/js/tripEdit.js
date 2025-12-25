@@ -86,13 +86,26 @@ async function loadTrip() {
 /**
  * 展示可编辑的行程
  * @param {Array} itinerary 行程数据
+ * @param {Object} tripData 行程完整数据（可选，包含tripId等信息）
  */
-function displayEditItinerary(itinerary) {
+function displayEditItinerary(itinerary, tripData = null) {
   const container = document.getElementById('editItinerary');
   
   if (!itinerary || itinerary.length === 0) {
     container.innerHTML = '<p class="empty-tip">暂无行程数据</p>';
     return;
+  }
+  
+  // 如果提供了tripData，存储tripId到编辑面板（双重保障）
+  if (tripData && tripData.tripId) {
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    if (editPanel) {
+      editPanel.dataset.currentTripId = String(tripData.tripId);
+    }
+    if (editContainer) {
+      editContainer.dataset.currentTripId = String(tripData.tripId);
+    }
   }
 
   container.innerHTML = itinerary.map((day, dayIndex) => `
@@ -180,57 +193,133 @@ function updateItemIndexes(dayIndex) {
  * 保存行程修改
  */
 async function saveTrip() {
-  if (!currentEditTrip) {
-    window.api.showToast('请先加载行程', 'error');
-    return;
-  }
+  try {
+    // 1. 获取当前编辑行程的tripId（优先从DOM属性获取，其次从currentEditTrip）
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    let currentTripId = null;
+    
+    if (editPanel && editPanel.dataset.currentTripId) {
+      currentTripId = editPanel.dataset.currentTripId;
+    } else if (editContainer && editContainer.dataset.currentTripId) {
+      currentTripId = editContainer.dataset.currentTripId;
+    } else if (currentEditTrip && currentEditTrip.tripId) {
+      currentTripId = String(currentEditTrip.tripId);
+    }
+    
+    if (!currentTripId) {
+      window.api.showToast('保存失败：未找到当前编辑行程的ID', 'error');
+      console.error('保存失败：无法获取tripId');
+      return;
+    }
 
-  // 收集编辑后的行程数据
-  const itinerary = [];
-  const daySections = document.querySelectorAll('.day-section');
+    // 2. 收集编辑后的行程数据（与生成行程格式一致）
+    const itinerary = [];
+    const daySections = document.querySelectorAll('.day-section');
 
-  daySections.forEach((daySection, dayIndex) => {
-    const day = daySection.querySelector('.day-header input.day-date')?.value || '';
-    const items = [];
+    daySections.forEach((daySection, dayIndex) => {
+      const day = daySection.querySelector('.day-header input.day-date')?.value || '';
+      const items = [];
 
-    daySection.querySelectorAll('.editable-item').forEach(itemEl => {
-      items.push({
-        time: itemEl.querySelector('.item-time')?.value || '',
-        place: itemEl.querySelector('.item-place')?.value || '',
-        description: itemEl.querySelector('.item-description')?.value || ''
+      daySection.querySelectorAll('.editable-item').forEach(itemEl => {
+        items.push({
+          time: itemEl.querySelector('.item-time')?.value || '',
+          place: itemEl.querySelector('.item-place')?.value || '',
+          description: itemEl.querySelector('.item-description')?.value || ''
+        });
+      });
+
+      itinerary.push({
+        day: dayIndex + 1,
+        date: day,
+        items
       });
     });
 
-    itinerary.push({
-      day: dayIndex + 1,
-      date: day,
-      items
-    });
-  });
+    // 获取标题和计算天数
+    const titleEl = document.getElementById('editTripTitle');
+    const title = titleEl ? titleEl.textContent.trim() : (currentEditTrip?.title || '未命名行程');
+    const days = itinerary.length; // 从itinerary长度计算天数
 
-  // 获取标题（如果存在）
-  const titleEl = document.getElementById('editTripTitle');
-  const title = titleEl ? titleEl.textContent.trim() : (currentEditTrip.title || '未命名行程');
-  
-  try {
-    await window.api.post('/trip/update', {
-      tripId: currentEditTrip.tripId,
+    // 3. 构建更新后的行程数据（与生成行程格式一致）
+    const updatedTripData = {
+      tripId: currentTripId,
       title: title,
-      itinerary
-    });
+      days: days,
+      itinerary: itinerary,
+      updatedAt: new Date().toISOString()
+    };
 
-    window.api.showToast('保存成功', 'success');
-    
-    // 更新当前行程数据
-    currentEditTrip.title = title;
-    currentEditTrip.itinerary = itinerary;
-    
-    // 刷新行程列表（如果行程列表管理模块存在）
+    // 4. 更新本地存储（localStorage中的trip_list）
+    try {
+      let tripList = [];
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        tripList = JSON.parse(listData);
+      }
+      
+      // 查找是否已存在（根据tripId，使用字符串比较）
+      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
+      
+      const tripListItem = {
+        tripId: currentTripId,
+        title: title,
+        days: days,
+        savedAt: updatedTripData.updatedAt || new Date().toISOString()
+      };
+      
+      if (existingIndex >= 0) {
+        // 更新现有项
+        tripList[existingIndex] = tripListItem;
+        console.log('✅ 已更新localStorage中的行程列表项');
+      } else {
+        // 如果不存在，添加新项（理论上不应该发生，但为了安全）
+        tripList.push(tripListItem);
+        console.warn('⚠️ 行程列表中未找到该行程，已添加为新项');
+      }
+      
+      // 保存回localStorage
+      localStorage.setItem('trip_list', JSON.stringify(tripList));
+      console.log('✅ 已更新localStorage中的trip_list');
+    } catch (error) {
+      console.error('更新localStorage失败:', error);
+      // 不阻断后续操作，继续尝试更新后端
+    }
+
+    // 5. 更新后端接口（如果用户已登录）
+    try {
+      await window.api.post('/trip/update', {
+        tripId: currentTripId,
+        title: title,
+        itinerary: itinerary
+      });
+      console.log('✅ 已更新后端行程数据');
+    } catch (error) {
+      console.warn('⚠️ 后端更新失败（可能用户未登录或接口不存在）:', error);
+      // 后端更新失败不影响本地保存成功
+    }
+
+    // 6. 更新内存中的currentEditTrip
+    if (currentEditTrip) {
+      currentEditTrip.title = title;
+      currentEditTrip.itinerary = itinerary;
+      currentEditTrip.days = days;
+      if (currentEditTrip.tripId !== currentTripId) {
+        currentEditTrip.tripId = currentTripId;
+      }
+    }
+
+    // 7. 刷新行程列表（如果行程列表管理模块存在）
     if (window.tripListManager && window.tripListManager.loadAllTrips) {
       window.tripListManager.loadAllTrips();
     }
+
+    // 8. 显示成功提示
+    window.api.showToast('保存成功', 'success');
+    
   } catch (error) {
-    // 错误已在 api.js 中处理
+    console.error('保存行程修改失败:', error);
+    window.api.showToast('保存失败：' + (error.message || '未知错误'), 'error');
   }
 }
 

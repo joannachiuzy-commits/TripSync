@@ -218,11 +218,11 @@ router.get('/get', async (req, res) => {
 /**
  * 更新行程
  * POST /api/trip/update
- * Body: { tripId, itinerary }
+ * Body: { tripId, itinerary, title, days }
  */
 router.post('/update', async (req, res) => {
   try {
-    const { tripId, itinerary } = req.body;
+    const { tripId, itinerary, title, days } = req.body;
 
     if (!tripId || !itinerary) {
       return res.json({
@@ -240,11 +240,24 @@ router.post('/update', async (req, res) => {
       });
     }
 
-    // 更新行程
-    const success = await updateJsonArrayItem('trips.json', 'tripId', tripId, {
+    // 构建更新数据对象
+    const updateData = {
       itinerary,
       updatedAt: new Date().toISOString()
-    });
+    };
+
+    // 如果提供了title，也更新title
+    if (title !== undefined && title !== null) {
+      updateData.title = title;
+    }
+
+    // 如果提供了days，也更新days
+    if (days !== undefined && days !== null) {
+      updateData.days = days;
+    }
+
+    // 更新行程
+    const success = await updateJsonArrayItem('trips.json', 'tripId', tripId, updateData);
 
     if (!success) {
       return res.json({

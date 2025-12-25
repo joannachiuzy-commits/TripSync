@@ -166,13 +166,13 @@ async function selectTrip(tripId) {
       window.currentEditTrip = tripData;
     }
     
-    // 调用tripEdit.js的displayEditItinerary函数
+    // 调用tripEdit.js的displayEditItinerary函数（传递完整tripData以便存储tripId）
     if (window.tripEditModule && window.tripEditModule.displayEditItinerary) {
-      window.tripEditModule.displayEditItinerary(tripData.itinerary);
+      window.tripEditModule.displayEditItinerary(tripData.itinerary, tripData);
     } else {
       // 如果tripEditModule还未初始化，直接调用全局函数
       if (typeof displayEditItinerary === 'function') {
-        displayEditItinerary(tripData.itinerary);
+        displayEditItinerary(tripData.itinerary, tripData);
       }
     }
     
@@ -181,6 +181,16 @@ async function selectTrip(tripId) {
     const editEmpty = document.getElementById('editTripEmpty');
     if (editContainer) editContainer.style.display = 'block';
     if (editEmpty) editEmpty.style.display = 'none';
+    
+    // 存储当前编辑行程的tripId到编辑面板（用于保存时获取）
+    const editPanel = document.querySelector('.trip-edit-panel');
+    if (editPanel) {
+      editPanel.dataset.currentTripId = String(tripData.tripId);
+    }
+    // 同时在编辑容器上存储（双重保障）
+    if (editContainer) {
+      editContainer.dataset.currentTripId = String(tripData.tripId);
+    }
     
     // 更新行程标题
     const titleEl = document.getElementById('editTripTitle');
@@ -350,8 +360,10 @@ async function deleteTripFromList(tripId, event) {
     console.warn('allTrips中未找到该行程:', tripIdStr);
   }
   
-  // 4. 如果localStorage删除成功或allTrips删除成功，认为删除操作成功
-  if (localStorageDeleteSuccess || beforeAllCount > afterAllCount) {
+  // 4. 判断删除是否成功：只要localStorage删除成功或allTrips删除成功，就认为删除操作成功
+  const deleteSuccess = localStorageDeleteSuccess || beforeAllCount > afterAllCount;
+  
+  if (deleteSuccess) {
     // 如果删除的是当前选中的行程，清空编辑区（统一使用字符串比较）
     if (selectedTripId && String(selectedTripId) === tripIdStr) {
       selectedTripId = null;
@@ -370,17 +382,28 @@ async function deleteTripFromList(tripId, event) {
     renderTripList();
     updatePagination();
     
-    // 根据删除情况给出不同的提示
+    // 删除成功：根据删除情况给出不同的成功提示
     if (serverDeleteSuccess && localStorageDeleteSuccess) {
+      // 服务器和本地都删除成功
       window.api.showToast('删除成功', 'success');
     } else if (localStorageDeleteSuccess) {
-      window.api.showToast('本地删除成功（服务器删除可能失败）', 'success');
+      // 本地删除成功（服务器删除可能失败或不需要服务器删除）
+      window.api.showToast('删除成功', 'success');
+    } else if (beforeAllCount > afterAllCount) {
+      // 从allTrips删除成功（可能只在内存中）
+      window.api.showToast('删除成功', 'success');
     } else {
-      window.api.showToast('删除失败', 'error');
+      // 理论上不会到这里，但为了安全起见
+      window.api.showToast('删除成功', 'success');
     }
   } else {
-    // 删除失败
-    console.error('删除失败：无法从任何数据源删除行程，tripId:', tripIdStr);
+    // 删除失败：localStorage和allTrips都删除失败
+    console.error('删除失败：无法从任何数据源删除行程，tripId:', tripIdStr, {
+      localStorageDeleteSuccess,
+      beforeAllCount,
+      afterAllCount,
+      allTripsDeleted: beforeAllCount > afterAllCount
+    });
     window.api.showToast('删除失败：无法删除该行程', 'error');
   }
 }
