@@ -305,50 +305,72 @@ async function deleteTripFromList(tripId, event) {
   let serverDeleteSuccess = false;
   let localStorageDeleteSuccess = false;
   
-  // 1. 尝试从服务器删除（如果是从服务器加载的）
-  if (trip.source === 'server') {
-    const user = window.userModule?.getCurrentUser();
-    if (user) {
-      try {
-        // 注意：后端可能没有删除接口，如果失败也不影响localStorage删除
-        await window.api.delete('/trip/delete', { tripId: tripIdStr, userId: user.userId }, { showError: false });
-        serverDeleteSuccess = true;
-        console.log('服务器删除成功:', tripIdStr);
-      } catch (error) {
-        // 后端删除失败不影响继续删除localStorage
-        console.warn('服务器删除失败（可能后端接口不存在）:', error.message, '，将继续删除本地数据');
-        serverDeleteSuccess = false;
+  // 1. 优先从服务器删除（如果是从服务器加载的，或用户已登录）
+  const user = window.userModule?.getCurrentUser();
+  if (user && (trip.source === 'server' || trip.source === 'local')) {
+    try {
+      // 调用后端删除接口，等待响应
+      await window.api.delete('/trip/delete', { tripId: tripIdStr, userId: user.userId }, { showError: false });
+      serverDeleteSuccess = true;
+      console.log('✅ 服务器删除成功:', tripIdStr);
+    } catch (error) {
+      // 后端删除失败，记录错误但不阻断本地删除（可能是本地行程但用户已登录的情况）
+      console.warn('⚠️ 服务器删除失败:', error.message);
+      serverDeleteSuccess = false;
+      // 如果是服务器行程但删除失败，应该提示用户
+      if (trip.source === 'server') {
+        window.api.showToast('服务器删除失败，但将继续删除本地数据', 'error');
       }
     }
-  } else {
-    // 本地行程，标记为已处理（不需要服务器删除）
+  } else if (trip.source === 'local' && !user) {
+    // 纯本地行程且用户未登录，标记为已处理
     serverDeleteSuccess = true;
   }
   
-  // 2. 从localStorage删除（无论服务器删除是否成功都要执行）
-  try {
-    const listData = localStorage.getItem('trip_list');
-    if (listData) {
-      const localTrips = JSON.parse(listData);
-      // 使用字符串比较，确保类型匹配
-      const beforeCount = localTrips.length;
-      const filtered = localTrips.filter(t => String(t.tripId) !== tripIdStr);
-      const afterCount = filtered.length;
-      
-      if (beforeCount > afterCount) {
+  // 2. 从localStorage删除（如果服务器删除成功，或者服务器删除不需要执行）
+  // 对于服务器行程，优先等待服务器删除成功后再删除本地数据，确保数据一致性
+  if (serverDeleteSuccess || trip.source === 'local') {
+    try {
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        const localTrips = JSON.parse(listData);
+        // 使用字符串比较，确保类型匹配
+        const beforeCount = localTrips.length;
+        const filtered = localTrips.filter(t => String(t.tripId) !== tripIdStr);
+        const afterCount = filtered.length;
+        
+        if (beforeCount > afterCount) {
+          localStorage.setItem('trip_list', JSON.stringify(filtered));
+          localStorageDeleteSuccess = true;
+          console.log('✅ localStorage删除成功:', tripIdStr);
+        } else {
+          console.warn('⚠️ localStorage中未找到该行程:', tripIdStr);
+        }
+      } else {
+        // localStorage中没有数据，也视为成功（可能只在服务器）
+        localStorageDeleteSuccess = true;
+      }
+    } catch (error) {
+      console.error('❌ 从localStorage删除失败:', error);
+      localStorageDeleteSuccess = false;
+    }
+  } else {
+    // 服务器删除失败但需要删除，仍然尝试删除本地（可能是数据不一致的情况）
+    console.warn('⚠️ 服务器删除失败，但尝试删除本地数据以保持一致性');
+    try {
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        const localTrips = JSON.parse(listData);
+        const filtered = localTrips.filter(t => String(t.tripId) !== tripIdStr);
         localStorage.setItem('trip_list', JSON.stringify(filtered));
         localStorageDeleteSuccess = true;
-        console.log('localStorage删除成功:', tripIdStr);
       } else {
-        console.warn('localStorage中未找到该行程:', tripIdStr);
+        localStorageDeleteSuccess = true;
       }
-    } else {
-      // localStorage中没有数据，也视为成功（可能只在服务器）
-      localStorageDeleteSuccess = true;
+    } catch (error) {
+      console.error('❌ 从localStorage删除失败:', error);
+      localStorageDeleteSuccess = false;
     }
-  } catch (error) {
-    console.error('从localStorage删除失败:', error);
-    localStorageDeleteSuccess = false;
   }
   
   // 3. 从allTrips中删除（用于刷新列表）

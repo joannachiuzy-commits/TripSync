@@ -5,7 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem } = require('../utils/fileUtil');
+const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
 const { generateItinerary } = require('../utils/gptUtil');
 const { getOrCreateGuestUser } = require('./user');
 const { getUserId } = require('../utils/requestHelper');
@@ -278,6 +278,77 @@ router.post('/update', async (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '更新失败'
+    });
+  }
+});
+
+/**
+ * 删除行程
+ * DELETE /api/trip/delete
+ * Body: { tripId, userId }
+ */
+router.delete('/delete', async (req, res) => {
+  try {
+    const { tripId, userId } = req.body;
+
+    if (!tripId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程ID不能为空'
+      });
+    }
+
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户ID不能为空'
+      });
+    }
+
+    // 先检查行程是否存在，以及是否属于该用户
+    const trip = await findJsonArrayItem('trips.json', 'tripId', tripId);
+    
+    if (!trip) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程不存在'
+      });
+    }
+
+    // 验证权限：只有行程的所有者才能删除
+    if (trip.userId !== userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '无权删除该行程'
+      });
+    }
+
+    // 从文件中删除行程
+    const success = await deleteJsonArrayItem('trips.json', 'tripId', tripId);
+
+    if (!success) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '删除失败'
+      });
+    }
+
+    res.json({
+      code: 0,
+      data: {},
+      msg: '删除成功'
+    });
+  } catch (error) {
+    console.error('删除错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '删除失败'
     });
   }
 });
