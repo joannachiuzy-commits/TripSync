@@ -87,16 +87,24 @@ function displaySharedTrip(trip, permission) {
   const container = document.getElementById('sharedTripContent');
   const isEditable = permission === 'edit';
 
+  // 过滤空白天数：仅保留包含至少1个项目的天数
+  let validItinerary = [];
+  if (trip.itinerary && Array.isArray(trip.itinerary)) {
+    validItinerary = trip.itinerary.filter(day => {
+      return day.items && Array.isArray(day.items) && day.items.length > 0;
+    });
+  }
+
   let html = `
     <div class="trip-info">
       <h4>${trip.title || '未命名行程'}</h4>
-      <p>天数：${trip.days || ''} | 预算：${trip.budget || '不限'}</p>
+      <p>天数：${validItinerary.length || trip.days || ''} | 预算：${trip.budget || '不限'}</p>
       <p>权限：${isEditable ? '可编辑' : '只读'}</p>
     </div>
   `;
 
-  if (trip.itinerary && trip.itinerary.length > 0) {
-    html += trip.itinerary.map(day => `
+  if (validItinerary.length > 0) {
+    html += validItinerary.map(day => `
       <div class="day-section">
         <div class="day-header">第 ${day.day} 天 ${day.date ? `(${day.date})` : ''}</div>
         ${day.items && day.items.length > 0 ? day.items.map(item => `
@@ -127,18 +135,42 @@ function displaySharedTrip(trip, permission) {
 /**
  * 编辑共享行程（需要跳转到编辑页面）
  */
-function editSharedTrip(tripId, permission) {
+async function editSharedTrip(tripId, permission) {
   // 切换到编辑标签
   const editTab = document.querySelector('.tab-btn[data-tab="edit"]');
   if (editTab) {
     editTab.click();
     
     // 设置行程选择器并加载
-    setTimeout(() => {
-      const selector = document.getElementById('tripSelector');
-      if (selector) {
-        selector.value = tripId;
-        document.getElementById('loadTripBtn').click();
+    setTimeout(async () => {
+      try {
+        // 获取行程数据
+        const data = await window.api.get('/trip/get', { tripId });
+        let tripData = data.trip;
+        
+        // 协作同步前过滤空天数（移除无项目的天数）
+        if (tripData.itinerary && Array.isArray(tripData.itinerary)) {
+          tripData.itinerary = tripData.itinerary.filter(day => {
+            return day.items && Array.isArray(day.items) && day.items.length > 0;
+          });
+          // 更新days字段为过滤后的天数
+          tripData.days = tripData.itinerary.length;
+        }
+        
+        // 使用tripListManager加载行程（会自动过滤空天数）
+        if (window.tripListManager && window.tripListManager.selectTrip) {
+          window.tripListManager.selectTrip(tripId);
+        } else {
+          // 备用方案：直接调用loadTrip
+          const selector = document.getElementById('tripSelector');
+          if (selector) {
+            selector.value = tripId;
+            document.getElementById('loadTripBtn').click();
+          }
+        }
+      } catch (error) {
+        console.error('加载共享行程失败:', error);
+        window.api.showToast('加载行程失败', 'error');
       }
     }, 100);
   }

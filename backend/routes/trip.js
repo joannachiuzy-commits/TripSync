@@ -240,9 +240,23 @@ router.post('/update', async (req, res) => {
       });
     }
 
+    // 过滤空白天数：仅保留包含至少1个项目的天数
+    const validItinerary = itinerary.filter(day => {
+      return day.items && Array.isArray(day.items) && day.items.length > 0;
+    });
+
+    // 如果过滤后没有有效天数，返回错误
+    if (validItinerary.length === 0) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程数据不能为空，至少需要包含一个行程项目'
+      });
+    }
+
     // 构建更新数据对象
     const updateData = {
-      itinerary,
+      itinerary: validItinerary,
       updatedAt: new Date().toISOString()
     };
 
@@ -251,10 +265,8 @@ router.post('/update', async (req, res) => {
       updateData.title = title;
     }
 
-    // 如果提供了days，也更新days
-    if (days !== undefined && days !== null) {
-      updateData.days = days;
-    }
+    // 更新days字段为过滤后的有效天数
+    updateData.days = validItinerary.length;
 
     // 更新行程
     const success = await updateJsonArrayItem('trips.json', 'tripId', tripId, updateData);
@@ -459,9 +471,6 @@ ${JSON.stringify(trip, null, 2)}
     modifiedTrip.createdAt = trip.createdAt;
     modifiedTrip.updatedAt = new Date().toISOString();
 
-    // 确保days字段正确（从itinerary长度计算）
-    modifiedTrip.days = modifiedTrip.itinerary.length;
-
     // 验证并格式化itinerary数据
     modifiedTrip.itinerary = modifiedTrip.itinerary.map((day, dayIndex) => ({
       day: day.day || dayIndex + 1,
@@ -472,6 +481,19 @@ ${JSON.stringify(trip, null, 2)}
         description: item.description || ''
       }))
     }));
+
+    // 过滤空白天数：仅保留包含至少1个项目的天数
+    modifiedTrip.itinerary = modifiedTrip.itinerary.filter(day => {
+      return day.items && Array.isArray(day.items) && day.items.length > 0;
+    });
+
+    // 如果过滤后没有有效天数，返回错误
+    if (modifiedTrip.itinerary.length === 0) {
+      throw new Error('修改后的行程不能为空，至少需要包含一个行程项目');
+    }
+
+    // 确保days字段正确（从过滤后的itinerary长度计算）
+    modifiedTrip.days = modifiedTrip.itinerary.length;
 
     res.json({
       code: 0,

@@ -76,7 +76,17 @@ async function loadTrip() {
   try {
     const data = await window.api.get('/trip/get', { tripId });
     currentEditTrip = data.trip;
-    displayEditItinerary(data.trip.itinerary);
+    
+    // 加载后先过滤空天数
+    if (currentEditTrip.itinerary && Array.isArray(currentEditTrip.itinerary)) {
+      currentEditTrip.itinerary = currentEditTrip.itinerary.filter(day => {
+        return day.items && Array.isArray(day.items) && day.items.length > 0;
+      });
+      // 更新days字段为过滤后的天数
+      currentEditTrip.days = currentEditTrip.itinerary.length;
+    }
+    
+    displayEditItinerary(currentEditTrip.itinerary);
     document.getElementById('editTripContainer').style.display = 'block';
   } catch (error) {
     // 错误已在 api.js 中处理
@@ -96,6 +106,17 @@ function displayEditItinerary(itinerary, tripData = null) {
     return;
   }
   
+  // 过滤空白天数：仅保留包含至少1个项目的天数
+  const validDays = itinerary.filter(day => {
+    // 检查是否有items数组且至少包含1个项目
+    return day.items && Array.isArray(day.items) && day.items.length > 0;
+  });
+  
+  if (validDays.length === 0) {
+    container.innerHTML = '<p class="empty-tip">暂无行程数据</p>';
+    return;
+  }
+  
   // 如果提供了tripData，存储tripId到编辑面板（双重保障）
   if (tripData && tripData.tripId) {
     const editPanel = document.querySelector('.trip-edit-panel');
@@ -108,7 +129,8 @@ function displayEditItinerary(itinerary, tripData = null) {
     }
   }
 
-  container.innerHTML = itinerary.map((day, dayIndex) => `
+  // 使用过滤后的有效天数进行渲染
+  container.innerHTML = validDays.map((day, dayIndex) => `
     <div class="day-section" data-day-index="${dayIndex}">
       <div class="day-header">
         第 ${day.day || dayIndex + 1} 天
@@ -229,11 +251,14 @@ async function saveTrip() {
         });
       });
 
-      itinerary.push({
-        day: dayIndex + 1,
-        date: day,
-        items
-      });
+      // 仅保存包含至少1个项目的天数（过滤空白天数）
+      if (items.length > 0) {
+        itinerary.push({
+          day: itinerary.length + 1, // 使用实际索引，确保连续
+          date: day,
+          items
+        });
+      }
     });
 
     // 获取标题和计算天数
@@ -398,15 +423,24 @@ async function handleAgentModify() {
       throw new Error('服务器返回数据格式错误');
     }
 
-    const modifiedTrip = response.trip;
+    let modifiedTrip = response.trip;
 
-    // 5. 更新当前编辑的行程数据
+    // 5. 智能修改后过滤空天数（移除无项目的天数）
+    if (modifiedTrip.itinerary && Array.isArray(modifiedTrip.itinerary)) {
+      modifiedTrip.itinerary = modifiedTrip.itinerary.filter(day => {
+        return day.items && Array.isArray(day.items) && day.items.length > 0;
+      });
+      // 更新days字段为过滤后的天数
+      modifiedTrip.days = modifiedTrip.itinerary.length;
+    }
+
+    // 6. 更新当前编辑的行程数据
     currentEditTrip = modifiedTrip;
     if (window.tripEditModule) {
       window.tripEditModule.currentEditTrip = modifiedTrip;
     }
 
-    // 6. 更新编辑面板的tripId（双重保障）
+    // 7. 更新编辑面板的tripId（双重保障）
     if (editPanel) {
       editPanel.dataset.currentTripId = String(modifiedTrip.tripId);
     }
@@ -414,7 +448,7 @@ async function handleAgentModify() {
       editContainer.dataset.currentTripId = String(modifiedTrip.tripId);
     }
 
-    // 7. 更新行程标题
+    // 8. 更新行程标题
     const titleEl = document.getElementById('editTripTitle');
     if (titleEl) {
       titleEl.textContent = modifiedTrip.title || '未命名行程';
@@ -424,10 +458,10 @@ async function handleAgentModify() {
       }
     }
 
-    // 8. 复用displayEditItinerary函数刷新编辑区
+    // 9. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
     displayEditItinerary(modifiedTrip.itinerary, modifiedTrip);
 
-    // 9. 更新本地存储（同步到trip_list）
+    // 10. 更新本地存储（同步到trip_list）
     try {
       let tripList = [];
       const listData = localStorage.getItem('trip_list');
@@ -455,15 +489,15 @@ async function handleAgentModify() {
       console.warn('更新localStorage失败:', error);
     }
 
-    // 10. 刷新行程列表（如果存在）
+    // 11. 刷新行程列表（如果存在）
     if (window.tripListManager && window.tripListManager.loadAllTrips) {
       window.tripListManager.loadAllTrips();
     }
 
-    // 11. 清空输入框
+    // 12. 清空输入框
     promptInput.value = '';
 
-    // 12. 显示成功提示
+    // 13. 显示成功提示
     window.api.showToast(`智能修改完成（使用${response.modelName || '通义千问'}），可保存修改`, 'success');
 
   } catch (error) {

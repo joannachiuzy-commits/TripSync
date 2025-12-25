@@ -156,6 +156,15 @@ async function selectTrip(tripId) {
       tripData = data.trip;
     }
     
+    // 加载后先过滤空天数（移除无项目的天数）
+    if (tripData.itinerary && Array.isArray(tripData.itinerary)) {
+      tripData.itinerary = tripData.itinerary.filter(day => {
+        return day.items && Array.isArray(day.items) && day.items.length > 0;
+      });
+      // 更新days字段为过滤后的天数
+      tripData.days = tripData.itinerary.length;
+    }
+    
     // 设置当前编辑的行程（供tripEdit.js使用）
     if (window.tripEditModule) {
       window.tripEditModule.currentEditTrip = tripData;
