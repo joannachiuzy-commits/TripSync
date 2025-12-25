@@ -271,6 +271,8 @@
             <div class="trip-header-bar">
               <h3 id="editTripTitle" class="trip-title-editable">未命名行程</h3>
             </div>
+            <div id="editItinerary" class="itinerary-editor"></div>
+            <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
             <!-- 智能行程助手模块 -->
             <div class="trip-agent-helper">
               <h4>智能行程助手</h4>
@@ -282,8 +284,26 @@
               >
               <button id="btnAgentModify" class="btn-agent-modify">智能修改行程</button>
             </div>
-            <div id="editItinerary" class="itinerary-editor"></div>
-            <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
+            <!-- 收藏夹攻略优化模块 -->
+            <div class="trip-favorite-optimizer">
+              <h4>结合收藏夹攻略优化</h4>
+              <div class="optimizer-row">
+                <label>选择收藏的攻略：</label>
+                <select class="favorite-link-select" id="favoriteLinkSelect">
+                  <option value="">请选择攻略</option>
+                </select>
+              </div>
+              <div class="optimizer-row">
+                <label>自定义优化需求：</label>
+                <input 
+                  type="text" 
+                  class="custom-optimize-demand-input" 
+                  id="customOptimizeDemandInput"
+                  placeholder="例如：添加攻略里推荐的午饭和晚饭安排、替换行程里的景点为攻略推荐的"
+                >
+              </div>
+              <button id="btnOptimizeWithFavorite" class="btn-optimize-with-favorite">基于攻略优化行程</button>
+            </div>
           </div>
           <div id="editTripEmpty" class="empty-tip" style="display: block; padding: 2rem; text-align: center;">
             请从左侧选择一个行程进行编辑

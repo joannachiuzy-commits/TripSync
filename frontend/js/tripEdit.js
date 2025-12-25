@@ -105,7 +105,7 @@ function displayEditItinerary(itinerary, tripData = null) {
     container.innerHTML = '<p class="empty-tip">暂无行程数据</p>';
     return;
   }
-  
+
   // 过滤空白天数：仅保留包含至少1个项目的天数
   const validDays = itinerary.filter(day => {
     // 检查是否有items数组且至少包含1个项目
@@ -232,32 +232,32 @@ async function saveTrip() {
     if (!currentTripId) {
       window.api.showToast('保存失败：未找到当前编辑行程的ID', 'error');
       console.error('保存失败：无法获取tripId');
-      return;
-    }
+    return;
+  }
 
     // 2. 收集编辑后的行程数据（与生成行程格式一致）
-    const itinerary = [];
-    const daySections = document.querySelectorAll('.day-section');
+  const itinerary = [];
+  const daySections = document.querySelectorAll('.day-section');
 
-    daySections.forEach((daySection, dayIndex) => {
-      const day = daySection.querySelector('.day-header input.day-date')?.value || '';
-      const items = [];
+  daySections.forEach((daySection, dayIndex) => {
+    const day = daySection.querySelector('.day-header input.day-date')?.value || '';
+    const items = [];
 
-      daySection.querySelectorAll('.editable-item').forEach(itemEl => {
-        items.push({
-          time: itemEl.querySelector('.item-time')?.value || '',
-          place: itemEl.querySelector('.item-place')?.value || '',
-          description: itemEl.querySelector('.item-description')?.value || ''
-        });
+    daySection.querySelectorAll('.editable-item').forEach(itemEl => {
+      items.push({
+        time: itemEl.querySelector('.item-time')?.value || '',
+        place: itemEl.querySelector('.item-place')?.value || '',
+        description: itemEl.querySelector('.item-description')?.value || ''
       });
+    });
 
       // 仅保存包含至少1个项目的天数（过滤空白天数）
       if (items.length > 0) {
-        itinerary.push({
+    itinerary.push({
           day: itinerary.length + 1, // 使用实际索引，确保连续
-          date: day,
-          items
-        });
+      date: day,
+      items
+    });
       }
     });
 
@@ -312,8 +312,8 @@ async function saveTrip() {
     }
 
     // 5. 更新后端接口（如果用户已登录）
-    try {
-      await window.api.post('/trip/update', {
+  try {
+    await window.api.post('/trip/update', {
         tripId: currentTripId,
         title: title,
         itinerary: itinerary
@@ -369,6 +369,210 @@ function initTripAgentHelper() {
       modifyBtn.click();
     }
   });
+}
+
+/**
+ * 加载收藏夹链接列表到下拉框
+ */
+async function loadFavoriteLinks() {
+  const selectEl = document.getElementById('favoriteLinkSelect');
+  if (!selectEl) {
+    return;
+  }
+
+  try {
+    const user = window.userModule?.getCurrentUser();
+    if (!user) {
+      selectEl.innerHTML = '<option value="">请先登录</option>';
+      return;
+    }
+
+    const data = await window.api.get('/collection/list', { userId: user.userId });
+    const favoriteLinks = data.collections || [];
+
+    selectEl.innerHTML = '<option value="">请选择攻略</option>';
+    
+    if (favoriteLinks.length === 0) {
+      selectEl.innerHTML += '<option value="" disabled>暂无收藏的攻略</option>';
+      return;
+    }
+
+    favoriteLinks.forEach(link => {
+      const option = document.createElement('option');
+      option.value = link.collectionId;
+      option.textContent = link.title || '未命名攻略';
+      selectEl.appendChild(option);
+    });
+  } catch (error) {
+    console.error('加载收藏夹链接失败:', error);
+    selectEl.innerHTML = '<option value="">加载失败</option>';
+  }
+}
+
+/**
+ * 初始化收藏夹攻略优化功能
+ */
+function initFavoriteOptimizer() {
+  const optimizeBtn = document.getElementById('btnOptimizeWithFavorite');
+  if (!optimizeBtn) {
+    return;
+  }
+
+  // 加载收藏夹链接列表
+  loadFavoriteLinks();
+
+  // 绑定优化按钮点击事件
+  optimizeBtn.addEventListener('click', handleFavoriteOptimize);
+}
+
+/**
+ * 处理基于收藏夹攻略的行程优化
+ */
+async function handleFavoriteOptimize() {
+  const optimizeBtn = document.getElementById('btnOptimizeWithFavorite');
+  const linkSelect = document.getElementById('favoriteLinkSelect');
+  const demandInput = document.getElementById('customOptimizeDemandInput');
+
+  if (!optimizeBtn || !linkSelect || !demandInput) {
+    return;
+  }
+
+  try {
+    // 1. 获取选中的攻略、自定义优化需求、当前行程
+    const linkId = linkSelect.value;
+    // 核心修改：从自定义输入框获取需求，而非下拉框
+    const customDemand = demandInput.value.trim();
+
+    // 新增校验：自定义需求不能为空
+    if (!linkId) {
+      window.api.showToast('请选择攻略', 'warning');
+      return;
+    }
+
+    if (!customDemand) {
+      window.api.showToast('请输入优化需求', 'warning');
+      return;
+    }
+
+    // 获取当前编辑行程的tripId
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    let currentTripId = null;
+    
+    if (editPanel && editPanel.dataset.currentTripId) {
+      currentTripId = editPanel.dataset.currentTripId;
+    } else if (editContainer && editContainer.dataset.currentTripId) {
+      currentTripId = editContainer.dataset.currentTripId;
+    } else if (currentEditTrip && currentEditTrip.tripId) {
+      currentTripId = String(currentEditTrip.tripId);
+    }
+
+    if (!currentTripId) {
+      window.api.showToast('请先加载行程', 'error');
+      return;
+    }
+
+    // 2. 禁用按钮，显示加载状态
+    optimizeBtn.disabled = true;
+    optimizeBtn.textContent = '优化中...';
+    window.api.showLoadingOverlay();
+
+    // 3. 调用后端API进行优化（核心修改：传递自定义需求）
+    const response = await window.api.post('/trip/optimize-with-favorite', {
+      tripId: currentTripId,
+      collectionId: linkId,
+      demand: customDemand
+    });
+
+    if (!response || !response.trip) {
+      throw new Error('服务器返回数据格式错误');
+    }
+
+    let optimizedTrip = response.trip;
+
+    // 4. 优化后过滤空天数（移除无项目的天数）
+    if (optimizedTrip.itinerary && Array.isArray(optimizedTrip.itinerary)) {
+      optimizedTrip.itinerary = optimizedTrip.itinerary.filter(day => {
+        return day.items && Array.isArray(day.items) && day.items.length > 0;
+      });
+      // 更新days字段为过滤后的天数
+      optimizedTrip.days = optimizedTrip.itinerary.length;
+    }
+
+    // 5. 更新当前编辑的行程数据
+    currentEditTrip = optimizedTrip;
+    if (window.tripEditModule) {
+      window.tripEditModule.currentEditTrip = optimizedTrip;
+    }
+
+    // 6. 更新编辑面板的tripId（双重保障）
+    if (editPanel) {
+      editPanel.dataset.currentTripId = String(optimizedTrip.tripId);
+    }
+    if (editContainer) {
+      editContainer.dataset.currentTripId = String(optimizedTrip.tripId);
+    }
+
+    // 7. 更新行程标题
+    const titleEl = document.getElementById('editTripTitle');
+    if (titleEl) {
+      titleEl.textContent = optimizedTrip.title || '未命名行程';
+      // 重新初始化标题编辑功能（如果函数存在）
+      if (window.tripListManager && typeof window.tripListManager.initEditTitle === 'function') {
+        window.tripListManager.initEditTitle();
+      }
+    }
+
+    // 8. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
+    displayEditItinerary(optimizedTrip.itinerary, optimizedTrip);
+
+    // 9. 更新本地存储（同步到trip_list）
+    try {
+      let tripList = [];
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        tripList = JSON.parse(listData);
+      }
+      
+      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
+      
+      const tripListItem = {
+        tripId: optimizedTrip.tripId,
+        title: optimizedTrip.title || '未命名行程',
+        days: optimizedTrip.days || optimizedTrip.itinerary.length,
+        savedAt: optimizedTrip.updatedAt || new Date().toISOString()
+      };
+      
+      if (existingIndex >= 0) {
+        tripList[existingIndex] = tripListItem;
+      } else {
+        tripList.push(tripListItem);
+      }
+      
+      localStorage.setItem('trip_list', JSON.stringify(tripList));
+    } catch (error) {
+      console.warn('更新localStorage失败:', error);
+    }
+
+    // 10. 刷新行程列表（如果存在）
+    if (window.tripListManager && window.tripListManager.loadAllTrips) {
+      window.tripListManager.loadAllTrips();
+    }
+
+    // 11. 显示成功提示
+    window.api.showToast(`基于攻略优化完成（使用${response.modelName || '通义千问'}），可保存修改`, 'success');
+
+  } catch (error) {
+    console.error('攻略优化失败:', error);
+    window.api.showToast('攻略优化失败：' + (error.message || '请检查攻略内容或稍后重试'), 'error');
+  } finally {
+    // 恢复按钮状态
+    if (optimizeBtn) {
+      optimizeBtn.disabled = false;
+      optimizeBtn.textContent = '基于攻略优化行程';
+    }
+    window.api.hideLoadingOverlay();
+  }
 }
 
 /**
@@ -536,6 +740,9 @@ function initTripEdit() {
   // 初始化智能行程助手
   initTripAgentHelper();
 
+  // 初始化收藏夹攻略优化功能
+  initFavoriteOptimizer();
+
   // 将函数挂载到全局，供 HTML 中的 onclick 使用
   window.addTripItem = addTripItem;
   window.deleteTripItem = deleteTripItem;
@@ -550,6 +757,9 @@ window.tripEditModule = {
   initTripEdit,
   initTripAgentHelper,
   handleAgentModify,
+  loadFavoriteLinks,
+  initFavoriteOptimizer,
+  handleFavoriteOptimize,
   currentEditTrip // 导出currentEditTrip供其他模块使用
 };
 

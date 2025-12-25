@@ -514,5 +514,191 @@ ${JSON.stringify(trip, null, 2)}
   }
 });
 
+/**
+ * 基于收藏夹攻略优化行程
+ * POST /api/trip/optimize-with-favorite
+ * Body: { tripId, collectionId, demand }
+ */
+router.post('/optimize-with-favorite', async (req, res) => {
+  try {
+    const { tripId, collectionId, demand } = req.body;
+    const userId = getUserId(req);
+
+    if (!tripId || !collectionId || !demand) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程ID、收藏ID和优化需求不能为空'
+      });
+    }
+
+    // 获取当前行程数据
+    const trip = await findJsonArrayItem('trips.json', 'tripId', tripId);
+    
+    if (!trip) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程不存在'
+      });
+    }
+
+    // 验证行程所有权
+    if (trip.userId !== userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '无权修改该行程'
+      });
+    }
+
+    // 获取收藏的攻略内容
+    const collections = await readJsonFile('collections.json');
+    const favoriteCollection = collections.find(c => 
+      c.collectionId === collectionId && c.userId === userId
+    );
+
+    if (!favoriteCollection) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '收藏的攻略不存在或无权访问'
+      });
+    }
+
+    // 核心修改：直接使用用户输入的自定义需求，不再使用预设的demandMap
+    const demandDescription = demand;
+
+    // 构造AI提示词
+    const agentPrompt = `你是一个专业的旅行规划助手。请基于以下现有行程和收藏的攻略内容，按照用户需求优化行程，返回JSON格式的行程数据。
+
+现有行程数据：
+${JSON.stringify(trip, null, 2)}
+
+收藏攻略内容：
+标题：${favoriteCollection.title || '未命名攻略'}
+内容：${favoriteCollection.content || ''}
+地点标签：${(favoriteCollection.tags && favoriteCollection.tags.length > 0) 
+  ? favoriteCollection.tags.join('、') 
+  : (favoriteCollection.places && favoriteCollection.places.length > 0 
+    ? favoriteCollection.places.join('、') 
+    : '未提取')}
+
+用户自定义优化需求：${demandDescription}
+
+要求：
+1. 仅在现有行程基础上修改/新增，不删除原有非空项目
+2. 新增的美食/景点需匹配现有行程的时间逻辑（如中午11:30-13:00安排午餐，晚上18:00-20:00安排晚餐）
+3. 保持行程数据格式与现有格式完全一致
+4. itinerary数组中每个项必须包含time（时间）、place（地点）、description（描述）字段
+5. 保持tripId、userId、collectionIds等字段不变
+6. 如果修改了天数，需要相应调整days字段
+7. 直接返回完整的行程JSON对象，不要加其他说明文字
+
+返回格式示例：
+{
+  "tripId": "原tripId",
+  "userId": "原userId",
+  "title": "行程标题",
+  "days": 3,
+  "itinerary": [
+    {
+      "day": 1,
+      "date": "2024-01-01",
+      "items": [
+        {
+          "time": "09:00",
+          "place": "地点名称",
+          "description": "地点描述"
+        }
+      ]
+    }
+  ]
+}`;
+
+    // 调用通义千问（优先使用通义千问，因为国内访问更稳定）
+    const result = await callAIModel(agentPrompt, 'qwen');
+    const content = result.content;
+    
+    console.log(`[攻略优化] 使用 ${result.modelName} 优化成功`);
+
+    // 提取 JSON 部分（去除可能的代码块标记）
+    let jsonStr = content;
+    if (content.startsWith('```')) {
+      jsonStr = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    }
+
+    // 解析返回的JSON
+    let optimizedTrip;
+    try {
+      optimizedTrip = JSON.parse(jsonStr);
+    } catch (parseError) {
+      // 如果直接解析失败，尝试提取JSON对象
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        optimizedTrip = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('AI返回的格式不正确，无法解析JSON');
+      }
+    }
+
+    // 验证并确保关键字段存在
+    if (!optimizedTrip.itinerary || !Array.isArray(optimizedTrip.itinerary)) {
+      throw new Error('AI返回的行程数据格式错误：缺少itinerary数组');
+    }
+
+    // 保持原有字段不变（tripId、userId等）
+    optimizedTrip.tripId = trip.tripId;
+    optimizedTrip.userId = trip.userId;
+    optimizedTrip.collectionIds = trip.collectionIds || [];
+    optimizedTrip.budget = optimizedTrip.budget || trip.budget || '不限';
+    optimizedTrip.model = trip.model || 'qwen';
+    optimizedTrip.modelName = trip.modelName || '通义千问';
+    optimizedTrip.createdAt = trip.createdAt;
+    optimizedTrip.updatedAt = new Date().toISOString();
+
+    // 验证并格式化itinerary数据
+    optimizedTrip.itinerary = optimizedTrip.itinerary.map((day, dayIndex) => ({
+      day: day.day || dayIndex + 1,
+      date: day.date || '',
+      items: (day.items || []).map(item => ({
+        time: item.time || '00:00',
+        place: item.place || '',
+        description: item.description || ''
+      }))
+    }));
+
+    // 过滤空白天数：仅保留包含至少1个项目的天数
+    optimizedTrip.itinerary = optimizedTrip.itinerary.filter(day => {
+      return day.items && Array.isArray(day.items) && day.items.length > 0;
+    });
+
+    // 如果过滤后没有有效天数，返回错误
+    if (optimizedTrip.itinerary.length === 0) {
+      throw new Error('优化后的行程不能为空，至少需要包含一个行程项目');
+    }
+
+    // 确保days字段正确（从过滤后的itinerary长度计算）
+    optimizedTrip.days = optimizedTrip.itinerary.length;
+
+    res.json({
+      code: 0,
+      data: {
+        trip: optimizedTrip,
+        model: result.model,
+        modelName: result.modelName
+      },
+      msg: '基于攻略优化成功'
+    });
+  } catch (error) {
+    console.error('攻略优化错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '攻略优化失败'
+    });
+  }
+});
+
 module.exports = router;
 

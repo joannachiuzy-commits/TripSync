@@ -1540,6 +1540,86 @@ body {
   opacity: 0.7;
 }
 
+/* 收藏夹攻略优化模块样式（位于智能行程助手下方） */
+.trip-favorite-optimizer {
+  margin: 20px 0;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.trip-favorite-optimizer h4 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.optimizer-row {
+  margin-bottom: 12px;
+}
+
+.optimizer-row label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.favorite-link-select,
+.custom-optimize-demand-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+  color: #333;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.favorite-link-select {
+  cursor: pointer;
+}
+
+.custom-optimize-demand-input {
+  cursor: text;
+}
+
+.favorite-link-select:focus,
+.custom-optimize-demand-input:focus {
+  outline: none;
+  border-color: #28a745;
+}
+
+.btn-optimize-with-favorite {
+  width: 100%;
+  padding: 10px 16px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+  margin-top: 8px;
+}
+
+.btn-optimize-with-favorite:hover:not(:disabled) {
+  background: #218838;
+}
+
+.btn-optimize-with-favorite:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 /* 响应式适配：小屏幕（≤768px）自动转为上下布局 */
 @media (max-width: 768px) {
   .trip-edit-container {

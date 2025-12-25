@@ -209,6 +209,11 @@ async function selectTrip(tripId) {
       initEditTitle();
     }
     
+    // 刷新收藏夹链接列表（以防用户在编辑期间添加了新收藏）
+    if (window.tripEditModule && typeof window.tripEditModule.loadFavoriteLinks === 'function') {
+      window.tripEditModule.loadFavoriteLinks();
+    }
+    
   } catch (error) {
     console.error('加载行程详情失败:', error);
     window.api.showToast('加载行程失败', 'error');
