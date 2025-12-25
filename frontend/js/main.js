@@ -31,6 +31,11 @@ function activateTab(tabName) {
   if (tabName === 'generate' && window.tripGenerateModule) {
     window.tripGenerateModule.initTripGenerate();
   }
+  
+  // 如果激活的是行程编辑标签，初始化行程列表管理模块
+  if (tabName === 'edit' && window.tripListManager) {
+    window.tripListManager.initTripListManager();
+  }
 }
 
 /**
@@ -112,6 +117,9 @@ async function initApp() {
   if (window.tripEditModule) {
     window.tripEditModule.initTripEdit();
   }
+  
+  // tripListManager 模块的初始化由标签页切换逻辑控制
+  // 如果当前激活的是行程编辑标签，会在 activateTab() 中自动初始化
 
   if (window.shareModule) {
     window.shareModule.initShare();

@@ -250,20 +250,33 @@
 
     <!-- 行程编辑模块 -->
     <div id="editTab" class="tab-content">
-      <div class="container">
-        <h2>✏️ 行程编辑</h2>
-        
-        <div class="trip-selector">
-          <label>选择行程</label>
-          <select id="tripSelector">
-            <option value="">请选择行程</option>
-          </select>
-          <button id="loadTripBtn" class="btn btn-primary">加载行程</button>
+      <div class="trip-edit-container">
+        <!-- 左侧：行程清单+分页 -->
+        <div class="trip-list-panel">
+          <h3>我的行程清单</h3>
+          <div id="tripList" class="trip-list">
+            <p class="empty-tip">加载中...</p>
+          </div>
+          <!-- 分页控件 -->
+          <div class="pagination">
+            <button class="page-btn prev-page" disabled>上一页</button>
+            <span class="current-page">第1页/共1页</span>
+            <button class="page-btn next-page" disabled>下一页</button>
+          </div>
         </div>
 
-        <div id="editTripContainer" style="display: none;">
-          <div id="editItinerary" class="itinerary-editor"></div>
-          <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
+        <!-- 右侧：行程编辑区（复用生成行程后的编辑结构） -->
+        <div class="trip-edit-panel">
+          <div id="editTripContainer" style="display: none;">
+            <div class="trip-header-bar">
+              <h3 id="editTripTitle" class="trip-title-editable">未命名行程</h3>
+            </div>
+            <div id="editItinerary" class="itinerary-editor"></div>
+            <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
+          </div>
+          <div id="editTripEmpty" class="empty-tip" style="display: block; padding: 2rem; text-align: center;">
+            请从左侧选择一个行程进行编辑
+          </div>
         </div>
       </div>
     </div>
@@ -337,6 +350,7 @@
   <script src="js/collection.js"></script>
   <script src="js/tripGenerate.js"></script>
   <script src="js/tripEdit.js"></script>
+  <script src="js/tripListManager.js"></script>
   <script src="js/share.js"></script>
   <script src="js/main.js"></script>
 </body>

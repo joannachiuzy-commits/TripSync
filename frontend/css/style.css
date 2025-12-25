@@ -1296,3 +1296,215 @@ body {
   font-weight: 500;
 }
 
+/* 行程编辑页面：左右分栏布局 */
+.trip-edit-container {
+  display: flex;
+  width: 100%;
+  min-height: calc(100vh - 120px); /* 减去header和tabs的高度 */
+  gap: 24px;
+  padding: 20px;
+  box-sizing: border-box;
+  background: #f9f9f9;
+}
+
+/* 左侧面板：行程清单 */
+.trip-list-panel {
+  flex: 1 1 50%;
+  max-width: 50%;
+  min-width: 320px;
+  box-sizing: border-box;
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.trip-list-panel h3 {
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* 行程清单容器 */
+.trip-list {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
+/* 行程项 */
+.trip-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.trip-item:hover {
+  background: #f5f5f5;
+  border-color: #28a745;
+}
+
+.trip-item.selected {
+  background: #e8f5e9;
+  border-color: #28a745;
+}
+
+.trip-item .trip-name {
+  flex: 1;
+  font-weight: 500;
+  color: #333;
+  margin-right: 12px;
+}
+
+.trip-item .trip-days {
+  color: #666;
+  font-size: 0.875rem;
+  margin-right: 12px;
+}
+
+.trip-item .btn-delete-trip {
+  background: #f44336;
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.trip-item .btn-delete-trip:hover {
+  background: #d32f2f;
+}
+
+/* 分页控件 */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid #e0e0e0;
+}
+
+.page-btn {
+  padding: 6px 16px;
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.page-btn:disabled {
+  background: #f5f5f5;
+  color: #ccc;
+  cursor: not-allowed;
+  border-color: #e0e0e0;
+}
+
+.current-page {
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.current-page .page-number {
+  color: #28a745;
+  font-weight: 600;
+}
+
+/* 右侧面板：行程编辑区 */
+.trip-edit-panel {
+  flex: 1 1 50%;
+  max-width: 50%;
+  min-width: 320px;
+  box-sizing: border-box;
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  overflow-y: auto;
+}
+
+/* 编辑区的editable-item样式与生成行程页一致 */
+#editItinerary .editable-item {
+  padding: 12px 16px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  transition: background-color 0.2s;
+  flex-wrap: nowrap;
+}
+
+#editItinerary .editable-item:hover {
+  background: #f5f5f5;
+}
+
+#editItinerary .editable-item .item-time {
+  min-width: 60px;
+  font-weight: 500;
+  color: #28a745;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+#editItinerary .editable-item .item-place {
+  font-weight: 500;
+  color: #333;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+#editItinerary .editable-item .item-description {
+  color: #666;
+  font-size: 14px;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 响应式适配：小屏幕（≤768px）自动转为上下布局 */
+@media (max-width: 768px) {
+  .trip-edit-container {
+    flex-direction: column;
+    padding: 12px;
+    gap: 16px;
+  }
+  
+  .trip-list-panel,
+  .trip-edit-panel {
+    max-width: 100%;
+    min-width: 100%;
+  }
+  
+  .trip-list-panel {
+    padding: 16px;
+    max-height: 400px;
+  }
+  
+  .trip-edit-panel {
+    padding: 16px;
+  }
+}
+

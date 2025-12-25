@@ -208,16 +208,27 @@ async function saveTrip() {
     });
   });
 
+  // 获取标题（如果存在）
+  const titleEl = document.getElementById('editTripTitle');
+  const title = titleEl ? titleEl.textContent.trim() : (currentEditTrip.title || '未命名行程');
+  
   try {
     await window.api.post('/trip/update', {
       tripId: currentEditTrip.tripId,
+      title: title,
       itinerary
     });
 
     window.api.showToast('保存成功', 'success');
     
     // 更新当前行程数据
+    currentEditTrip.title = title;
     currentEditTrip.itinerary = itinerary;
+    
+    // 刷新行程列表（如果行程列表管理模块存在）
+    if (window.tripListManager && window.tripListManager.loadAllTrips) {
+      window.tripListManager.loadAllTrips();
+    }
   } catch (error) {
     // 错误已在 api.js 中处理
   }
@@ -227,13 +238,19 @@ async function saveTrip() {
  * 初始化行程编辑模块
  */
 function initTripEdit() {
-  // 加载行程按钮
-  document.getElementById('loadTripBtn').addEventListener('click', loadTrip);
+  // 保存按钮（新布局中仍然存在）
+  const saveBtn = document.getElementById('saveTripBtn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', saveTrip);
+  }
 
-  // 保存按钮
-  document.getElementById('saveTripBtn').addEventListener('click', saveTrip);
+  // 加载行程按钮（旧布局，保留兼容性）
+  const loadBtn = document.getElementById('loadTripBtn');
+  if (loadBtn) {
+    loadBtn.addEventListener('click', loadTrip);
+  }
 
-  // 加载行程列表
+  // 加载行程列表（用于下拉框，保留兼容性）
   loadTripList();
 
   // 将函数挂载到全局，供 HTML 中的 onclick 使用
@@ -247,6 +264,7 @@ window.tripEditModule = {
   loadTrip,
   displayEditItinerary,
   saveTrip,
-  initTripEdit
+  initTripEdit,
+  currentEditTrip // 导出currentEditTrip供其他模块使用
 };
 
