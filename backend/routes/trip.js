@@ -6,7 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
-const { generateItinerary } = require('../utils/gptUtil');
+const { generateItinerary, callAIModel } = require('../utils/gptUtil');
 const { getOrCreateGuestUser } = require('./user');
 const { getUserId } = require('../utils/requestHelper');
 const crypto = require('crypto');
@@ -349,6 +349,145 @@ router.delete('/delete', async (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '删除失败'
+    });
+  }
+});
+
+/**
+ * 智能修改行程（使用AI助手）
+ * POST /api/trip/modify
+ * Body: { tripId, userPrompt }
+ */
+router.post('/modify', async (req, res) => {
+  try {
+    const { tripId, userPrompt } = req.body;
+
+    if (!tripId || !userPrompt) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程ID和修改指令不能为空'
+      });
+    }
+
+    // 获取当前行程数据
+    const trip = await findJsonArrayItem('trips.json', 'tripId', tripId);
+    
+    if (!trip) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程不存在'
+      });
+    }
+
+    // 构造AI提示词
+    const agentPrompt = `你是一个专业的旅行规划助手。请基于以下现有行程，按照用户指令修改行程，返回JSON格式的行程数据。
+
+现有行程数据：
+${JSON.stringify(trip, null, 2)}
+
+用户修改指令：${userPrompt}
+
+要求：
+1. 仅修改用户指定的内容，未提及的内容保持不变
+2. 保持行程数据格式与现有格式完全一致
+3. itinerary数组中每个项必须包含time（时间）、place（地点）、description（描述）字段
+4. 保持tripId、userId、collectionIds等字段不变
+5. 如果修改了天数，需要相应调整days字段
+6. 直接返回完整的行程JSON对象，不要加其他说明文字
+
+返回格式示例：
+{
+  "tripId": "原tripId",
+  "userId": "原userId",
+  "title": "行程标题",
+  "days": 3,
+  "itinerary": [
+    {
+      "day": 1,
+      "date": "2024-01-01",
+      "items": [
+        {
+          "time": "09:00",
+          "place": "地点名称",
+          "description": "地点描述"
+        }
+      ]
+    }
+  ]
+}`;
+
+    // 调用通义千问（优先使用通义千问，因为国内访问更稳定）
+    const result = await callAIModel(agentPrompt, 'qwen');
+    const content = result.content;
+    
+    console.log(`[智能修改] 使用 ${result.modelName} 修改成功`);
+
+    // 提取 JSON 部分（去除可能的代码块标记）
+    let jsonStr = content;
+    if (content.startsWith('```')) {
+      jsonStr = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    }
+
+    // 解析返回的JSON
+    let modifiedTrip;
+    try {
+      modifiedTrip = JSON.parse(jsonStr);
+    } catch (parseError) {
+      // 如果直接解析失败，尝试提取JSON对象
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        modifiedTrip = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('AI返回的格式不正确，无法解析JSON');
+      }
+    }
+
+    // 验证并确保关键字段存在
+    if (!modifiedTrip.itinerary || !Array.isArray(modifiedTrip.itinerary)) {
+      throw new Error('AI返回的行程数据格式错误：缺少itinerary数组');
+    }
+
+    // 保持原有字段不变（tripId、userId等）
+    modifiedTrip.tripId = trip.tripId;
+    modifiedTrip.userId = trip.userId;
+    modifiedTrip.collectionIds = trip.collectionIds || [];
+    modifiedTrip.budget = modifiedTrip.budget || trip.budget || '不限';
+    modifiedTrip.model = trip.model || 'qwen';
+    modifiedTrip.modelName = trip.modelName || '通义千问';
+    modifiedTrip.createdAt = trip.createdAt;
+    modifiedTrip.updatedAt = new Date().toISOString();
+
+    // 确保days字段正确（从itinerary长度计算）
+    modifiedTrip.days = modifiedTrip.itinerary.length;
+
+    // 验证并格式化itinerary数据
+    modifiedTrip.itinerary = modifiedTrip.itinerary.map((day, dayIndex) => ({
+      day: day.day || dayIndex + 1,
+      date: day.date || '',
+      items: (day.items || []).map(item => ({
+        time: item.time || '00:00',
+        place: item.place || '',
+        description: item.description || ''
+      }))
+    }));
+
+    res.json({
+      code: 0,
+      data: {
+        trip: modifiedTrip,
+        model: result.model,
+        modelName: result.modelName
+      },
+      msg: '智能修改成功'
+    });
+  } catch (error) {
+    console.error('智能修改错误:', error);
+    res.json({
+      code: 1,
+      data: null,
+      msg: error.message || '智能修改失败'
     });
   }
 });

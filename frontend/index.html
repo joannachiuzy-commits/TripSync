@@ -271,6 +271,17 @@
             <div class="trip-header-bar">
               <h3 id="editTripTitle" class="trip-title-editable">未命名行程</h3>
             </div>
+            <!-- 智能行程助手模块 -->
+            <div class="trip-agent-helper">
+              <h4>智能行程助手</h4>
+              <input 
+                type="text" 
+                id="agentPromptInput"
+                class="agent-prompt-input" 
+                placeholder="输入修改指令（例如：把香积寺改成灵隐寺，时间提前到10:00）"
+              >
+              <button id="btnAgentModify" class="btn-agent-modify">智能修改行程</button>
+            </div>
             <div id="editItinerary" class="itinerary-editor"></div>
             <button id="saveTripBtn" class="btn btn-success btn-large">保存修改</button>
           </div>

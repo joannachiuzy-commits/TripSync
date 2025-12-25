@@ -324,6 +324,163 @@ async function saveTrip() {
 }
 
 /**
+ * 初始化智能行程助手
+ */
+function initTripAgentHelper() {
+  const modifyBtn = document.getElementById('btnAgentModify');
+  const promptInput = document.getElementById('agentPromptInput');
+  
+  if (!modifyBtn || !promptInput) {
+    return;
+  }
+
+  // 绑定智能修改按钮点击事件
+  modifyBtn.addEventListener('click', handleAgentModify);
+
+  // 绑定回车键快捷提交
+  promptInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      modifyBtn.click();
+    }
+  });
+}
+
+/**
+ * 处理智能修改行程
+ */
+async function handleAgentModify() {
+  const modifyBtn = document.getElementById('btnAgentModify');
+  const promptInput = document.getElementById('agentPromptInput');
+  
+  if (!modifyBtn || !promptInput) {
+    return;
+  }
+
+  try {
+    // 1. 获取当前编辑行程的tripId
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    let currentTripId = null;
+    
+    if (editPanel && editPanel.dataset.currentTripId) {
+      currentTripId = editPanel.dataset.currentTripId;
+    } else if (editContainer && editContainer.dataset.currentTripId) {
+      currentTripId = editContainer.dataset.currentTripId;
+    } else if (currentEditTrip && currentEditTrip.tripId) {
+      currentTripId = String(currentEditTrip.tripId);
+    }
+    
+    if (!currentTripId) {
+      window.api.showToast('请先加载行程', 'error');
+      return;
+    }
+
+    // 2. 获取用户输入的修改指令
+    const userPrompt = promptInput.value.trim();
+    if (!userPrompt) {
+      window.api.showToast('请输入修改指令', 'error');
+      return;
+    }
+
+    // 3. 禁用按钮，显示加载状态
+    modifyBtn.disabled = true;
+    modifyBtn.textContent = 'AI修改中...';
+    window.api.showLoadingOverlay();
+
+    // 4. 调用后端API进行智能修改
+    const response = await window.api.post('/trip/modify', {
+      tripId: currentTripId,
+      userPrompt: userPrompt
+    });
+
+    if (!response || !response.trip) {
+      throw new Error('服务器返回数据格式错误');
+    }
+
+    const modifiedTrip = response.trip;
+
+    // 5. 更新当前编辑的行程数据
+    currentEditTrip = modifiedTrip;
+    if (window.tripEditModule) {
+      window.tripEditModule.currentEditTrip = modifiedTrip;
+    }
+
+    // 6. 更新编辑面板的tripId（双重保障）
+    if (editPanel) {
+      editPanel.dataset.currentTripId = String(modifiedTrip.tripId);
+    }
+    if (editContainer) {
+      editContainer.dataset.currentTripId = String(modifiedTrip.tripId);
+    }
+
+    // 7. 更新行程标题
+    const titleEl = document.getElementById('editTripTitle');
+    if (titleEl) {
+      titleEl.textContent = modifiedTrip.title || '未命名行程';
+      // 重新初始化标题编辑功能（如果函数存在）
+      if (window.tripListManager && typeof window.tripListManager.initEditTitle === 'function') {
+        window.tripListManager.initEditTitle();
+      }
+    }
+
+    // 8. 复用displayEditItinerary函数刷新编辑区
+    displayEditItinerary(modifiedTrip.itinerary, modifiedTrip);
+
+    // 9. 更新本地存储（同步到trip_list）
+    try {
+      let tripList = [];
+      const listData = localStorage.getItem('trip_list');
+      if (listData) {
+        tripList = JSON.parse(listData);
+      }
+      
+      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
+      
+      const tripListItem = {
+        tripId: modifiedTrip.tripId,
+        title: modifiedTrip.title || '未命名行程',
+        days: modifiedTrip.days || modifiedTrip.itinerary.length,
+        savedAt: modifiedTrip.updatedAt || new Date().toISOString()
+      };
+      
+      if (existingIndex >= 0) {
+        tripList[existingIndex] = tripListItem;
+      } else {
+        tripList.push(tripListItem);
+      }
+      
+      localStorage.setItem('trip_list', JSON.stringify(tripList));
+    } catch (error) {
+      console.warn('更新localStorage失败:', error);
+    }
+
+    // 10. 刷新行程列表（如果存在）
+    if (window.tripListManager && window.tripListManager.loadAllTrips) {
+      window.tripListManager.loadAllTrips();
+    }
+
+    // 11. 清空输入框
+    promptInput.value = '';
+
+    // 12. 显示成功提示
+    window.api.showToast(`智能修改完成（使用${response.modelName || '通义千问'}），可保存修改`, 'success');
+
+  } catch (error) {
+    console.error('智能修改失败:', error);
+    window.api.showToast('智能修改失败：' + (error.message || '请检查指令或稍后重试'), 'error');
+  } finally {
+    // 恢复按钮状态
+    const modifyBtn = document.getElementById('btnAgentModify');
+    if (modifyBtn) {
+      modifyBtn.disabled = false;
+      modifyBtn.textContent = '智能修改行程';
+    }
+    window.api.hideLoadingOverlay();
+  }
+}
+
+/**
  * 初始化行程编辑模块
  */
 function initTripEdit() {
@@ -342,6 +499,9 @@ function initTripEdit() {
   // 加载行程列表（用于下拉框，保留兼容性）
   loadTripList();
 
+  // 初始化智能行程助手
+  initTripAgentHelper();
+
   // 将函数挂载到全局，供 HTML 中的 onclick 使用
   window.addTripItem = addTripItem;
   window.deleteTripItem = deleteTripItem;
@@ -354,6 +514,8 @@ window.tripEditModule = {
   displayEditItinerary,
   saveTrip,
   initTripEdit,
+  initTripAgentHelper,
+  handleAgentModify,
   currentEditTrip // 导出currentEditTrip供其他模块使用
 };
 
