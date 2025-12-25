@@ -519,40 +519,43 @@ function initSmartOptimizer() {
 }
 
 /**
- * 加载收藏夹链接列表到下拉框（合并后的模块）
+ * 加载收藏夹链接列表到复选框组（多选模式）
  */
 async function loadFavoriteLinks() {
-  const selectEl = document.getElementById('favoriteLinkSelect');
-  if (!selectEl) {
+  const checkboxesContainer = document.getElementById('favoriteCheckboxes');
+  if (!checkboxesContainer) {
     return;
   }
 
   try {
     const user = window.userModule?.getCurrentUser();
     if (!user) {
-      selectEl.innerHTML = '<option value="">不选择攻略（直接优化）</option>';
+      checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">请先登录</p>';
       return;
     }
 
     const data = await window.api.get('/collection/list', { userId: user.userId });
     const favoriteLinks = data.collections || [];
 
-    selectEl.innerHTML = '<option value="">不选择攻略（直接优化）</option>';
+    checkboxesContainer.innerHTML = '';
     
     if (favoriteLinks.length === 0) {
-      selectEl.innerHTML += '<option value="" disabled>暂无收藏的攻略</option>';
+      checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">暂无收藏的攻略</p>';
       return;
     }
 
     favoriteLinks.forEach(link => {
-      const option = document.createElement('option');
-      option.value = link.collectionId;
-      option.textContent = link.title || '未命名攻略';
-      selectEl.appendChild(option);
+      const labelEl = document.createElement('label');
+      labelEl.className = 'favorite-checkbox-item';
+      labelEl.innerHTML = `
+        <input type="checkbox" class="favorite-checkbox" value="${link.collectionId}">
+        <span>${window.utils.escapeHtml(link.title || '未命名攻略')}</span>
+      `;
+      checkboxesContainer.appendChild(labelEl);
     });
   } catch (error) {
     console.error('加载收藏夹链接失败:', error);
-    selectEl.innerHTML = '<option value="">不选择攻略（直接优化）</option>';
+    checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">加载失败</p>';
   }
 }
 
@@ -562,15 +565,18 @@ async function loadFavoriteLinks() {
  */
 async function handleSmartOptimize() {
   const optimizeBtn = document.getElementById('btnSmartOptimize');
-  const linkSelect = document.getElementById('favoriteLinkSelect');
   const instructionInput = document.getElementById('optimizeInstructionInput');
 
-  if (!optimizeBtn || !linkSelect || !instructionInput) {
+  if (!optimizeBtn || !instructionInput) {
     return;
   }
 
   try {
-    // 1. 基础校验
+    // 1. 收集选中的多个攻略ID
+    const selectedCheckboxes = document.querySelectorAll('.favorite-checkbox:checked');
+    const collectionIds = Array.from(selectedCheckboxes).map(checkbox => checkbox.value);
+
+    // 2. 基础校验
     const editPanel = document.querySelector('.trip-edit-panel');
     const editContainer = document.getElementById('editTripContainer');
     let currentTripId = null;
@@ -589,10 +595,15 @@ async function handleSmartOptimize() {
     }
 
     const instruction = instructionInput.value.trim();
-    const selectedLinkId = linkSelect.value;
+
+    // 输入校验：若选攻略则至少选一个，且需要指令
+    if (collectionIds.length > 0 && !instruction) {
+      window.api.showToast('选择了攻略时，请输入优化指令', 'warning');
+      return;
+    }
 
     // 输入校验：无指令且无攻略时提示
-    if (!instruction && !selectedLinkId) {
+    if (!instruction && collectionIds.length === 0) {
       window.api.showToast('请输入优化指令（或选择攻略）', 'warning');
       return;
     }
@@ -621,12 +632,12 @@ async function handleSmartOptimize() {
     let response;
     let optimizedTrip;
 
-    if (selectedLinkId) {
-      // 分支A：结合收藏夹攻略优化（调用optimize-with-favorite接口）
-      response = await window.api.post('/trip/optimize-with-favorite', {
+    if (collectionIds.length > 0) {
+      // 分支A：结合多个收藏夹攻略优化（调用optimize-with-multi-favorite接口）
+      response = await window.api.post('/trip/optimize-with-multi-favorite', {
         tripId: currentTripId,
-        collectionId: selectedLinkId,
-        demand: instruction || '基于攻略优化行程',
+        collectionIds: collectionIds, // 传递多攻略ID数组
+        demand: instruction,
         userId: userId
       });
 
@@ -724,7 +735,7 @@ async function handleSmartOptimize() {
 
     // 12. 显示成功提示
     const modelName = response.modelName || '通义千问';
-    const actionType = selectedLinkId ? '基于攻略优化' : '智能修改';
+    const actionType = collectionIds.length > 0 ? `基于${collectionIds.length}个攻略优化` : '智能修改';
     window.api.showToast(`${actionType}完成（使用${modelName}），可保存修改`, 'success');
 
   } catch (error) {

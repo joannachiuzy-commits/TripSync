@@ -234,6 +234,29 @@
             </div>
             
             <button id="generateTripBtn" class="btn btn-primary btn-large">生成行程</button>
+            
+            <!-- 手动输入行程模块（已移至页面底部） -->
+            <div class="manual-trip-section">
+              <h4>手动输入行程</h4>
+              <div class="manual-trip-desc">
+                提示：可输入任意格式的行程内容（如文字描述、随手记、聊天记录等），AI会自动解析
+                <br>示例：
+                <br>12月30日晚住乐天百货附近，吃晚饭；31日早上去乐天水族馆，晚上参加跨年倒数
+              </div>
+              <textarea 
+                class="manual-trip-input" 
+                id="manualTripInput"
+                placeholder="请输入任意格式的行程内容..."
+                rows="8"
+              ></textarea>
+              <input 
+                type="text" 
+                class="manual-trip-title" 
+                id="manualTripTitle"
+                placeholder="可选：输入行程标题（如未填，AI会自动生成）"
+              >
+              <button class="btn-manual-generate btn btn-primary btn-large">手动生成行程</button>
+            </div>
           </div>
         </div>
 
@@ -283,10 +306,10 @@
             <div class="trip-smart-optimizer">
               <h4>智能行程优化</h4>
               <div class="optimizer-row">
-                <label>选择收藏的攻略（可选）：</label>
-                <select class="favorite-link-select" id="favoriteLinkSelect">
-                  <option value="">不选择攻略（直接优化）</option>
-                </select>
+                <label class="multi-select-label">选择收藏的攻略（可选，可多选）：</label>
+                <div class="favorite-checkboxes" id="favoriteCheckboxes">
+                  <!-- JS动态生成攻略复选框 -->
+                </div>
               </div>
               <div class="optimizer-row">
                 <label>优化指令：</label>
@@ -294,7 +317,7 @@
                   type="text" 
                   class="optimize-instruction-input" 
                   id="optimizeInstructionInput"
-                  placeholder="例如：把香积寺改成灵隐寺/添加攻略里的午餐安排"
+                  placeholder="例如：第二天行程增加早餐（结合选中的美食攻略）"
                 >
               </div>
               <button id="btnSmartOptimize" class="btn-smart-optimize">智能优化行程</button>

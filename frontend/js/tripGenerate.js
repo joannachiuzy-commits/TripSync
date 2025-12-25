@@ -669,6 +669,121 @@ function handleSaveTrip() {
 }
 
 /**
+ * 手动生成行程（使用通义千问智能解析）
+ * 解析用户输入的任意格式行程内容，转换为系统标准格式并渲染
+ */
+async function generateManualTrip() {
+  try {
+    // 步骤1：获取用户输入
+    const tripContent = document.getElementById('manualTripInput').value.trim();
+    const tripTitle = document.getElementById('manualTripTitle').value.trim();
+
+    if (!tripContent) {
+      if (window.api && window.api.showToast) {
+        window.api.showToast('请输入行程内容', 'warning');
+      }
+      return;
+    }
+
+    // 步骤2：调用后端API进行AI智能解析
+    if (!window.api || !window.api.post) {
+      throw new Error('API模块未加载，请检查脚本加载顺序');
+    }
+
+    // 显示加载提示
+    if (window.api.showLoadingOverlay) {
+      window.api.showLoadingOverlay();
+    }
+
+    let parsedData;
+    try {
+      parsedData = await window.api.post('/trip/parse-manual', {
+        content: tripContent,
+        title: tripTitle || undefined // 如果用户未填标题，传undefined让AI自动生成
+      });
+    } catch (apiError) {
+      console.error('调用解析API失败：', apiError);
+      if (window.api && window.api.showToast) {
+        window.api.showToast(apiError.message || '行程解析失败，请简化内容后重试', 'error');
+      }
+      return;
+    } finally {
+      if (window.api.hideLoadingOverlay) {
+        window.api.hideLoadingOverlay();
+      }
+    }
+
+    if (!parsedData || !parsedData.itinerary || !Array.isArray(parsedData.itinerary)) {
+      throw new Error('行程解析失败，返回格式不正确');
+    }
+
+    // 步骤3：构造标准行程数据（与AI生成格式一致）
+    const newTripId = 'local_' + Date.now();
+    currentTripId = newTripId;
+    
+    // 保存行程原始数据
+    currentItineraryData = parsedData.itinerary;
+    
+    // 步骤4：显示生成结果（复用现有渲染函数）
+    displayItinerary(parsedData.itinerary);
+    
+    // 显示生成结果区域
+    const generateResult = document.getElementById('generateResult');
+    if (generateResult) {
+      generateResult.style.display = 'block';
+      if (parsedData.itinerary && parsedData.itinerary.length > 0) {
+        showSaveTripButton();
+      }
+    }
+    
+    // 设置标题（优先使用用户输入的标题，否则使用AI生成的标题）
+    const finalTitle = tripTitle || parsedData.title || '未命名行程';
+    const tripTitleElement = document.getElementById('tripTitle');
+    if (tripTitleElement) {
+      tripTitleElement.textContent = finalTitle;
+    }
+    
+    // 步骤5：保存到localStorage（与AI生成行程的保存逻辑一致）
+    const tripData = {
+      tripId: newTripId,
+      title: finalTitle,
+      days: parsedData.days || parsedData.itinerary.length,
+      itinerary: parsedData.itinerary,
+      itineraryHtml: document.getElementById('generatedItinerary').innerHTML,
+      savedAt: new Date().toISOString()
+    };
+    
+    localStorage.setItem('validated_trip', JSON.stringify(tripData));
+    saveTripToList(tripData);
+    
+    // 显示成功提示
+    if (window.api && window.api.showToast) {
+      const modelName = parsedData.modelName || 'AI';
+      window.api.showToast(`手动行程生成成功（使用 ${modelName} 解析）`, 'success');
+    }
+    
+    // 刷新行程列表
+    setTimeout(() => {
+      if (window.tripEditModule && window.tripEditModule.loadTripList) {
+        window.tripEditModule.loadTripList();
+      }
+      if (window.shareModule && window.shareModule.loadTripList) {
+        window.shareModule.loadTripList();
+      }
+    }, 500);
+    
+  } catch (err) {
+    console.error('手动生成行程失败：', err);
+    if (window.api && window.api.showToast) {
+      window.api.showToast(err.message || '行程解析失败，请简化内容后重试', 'error');
+    }
+    if (window.api && window.api.hideLoadingOverlay) {
+      window.api.hideLoadingOverlay();
+    }
+  }
+}
+
+/**
  * 初始化行程生成模块
  */
 function initTripGenerate() {
@@ -705,6 +820,14 @@ function initTripGenerate() {
       saveBtn.addEventListener('click', handleSaveTrip);
     }
     
+    // 初始化手动生成行程按钮
+    const manualGenerateBtn = document.querySelector('.btn-manual-generate');
+    if (manualGenerateBtn) {
+      manualGenerateBtn.removeEventListener('click', generateManualTrip);
+      manualGenerateBtn.addEventListener('click', generateManualTrip);
+      console.log('✅ 手动生成行程按钮点击事件绑定成功');
+    }
+    
     // 初始化偏好模块交互逻辑
     initPreferenceModule();
     
@@ -721,6 +844,7 @@ function initTripGenerate() {
 // 导出行程生成相关函数
 window.tripGenerateModule = {
   generateTrip,
+  generateManualTrip,
   displayItinerary,
   initTripGenerate,
   handleSaveTrip,
