@@ -156,6 +156,15 @@ async function selectTrip(tripId) {
       tripData = data.trip;
     }
     
+    // 修复：补全缺失的权限字段（兼容旧数据）
+    if (!tripData.hasOwnProperty('creatorId')) {
+      const currentUser = window.userModule?.getCurrentUser();
+      tripData.creatorId = tripData.userId || (currentUser ? currentUser.userId : null);
+    }
+    if (!tripData.hasOwnProperty('collaborators')) {
+      tripData.collaborators = [];
+    }
+    
     // 加载后先过滤空天数（移除无项目的天数）
     if (tripData.itinerary && Array.isArray(tripData.itinerary)) {
       tripData.itinerary = tripData.itinerary.filter(day => {
@@ -175,6 +184,14 @@ async function selectTrip(tripId) {
       window.currentEditTrip = tripData;
     }
     
+    // 新增：权限校验+按钮状态控制
+    if (window.tripEditModule && window.tripEditModule.checkTripModifyPermission) {
+      const hasPermission = await window.tripEditModule.checkTripModifyPermission(tripIdStr);
+      if (window.tripEditModule.updateModifyButtonsState) {
+        window.tripEditModule.updateModifyButtonsState(hasPermission);
+      }
+    }
+
     // 调用tripEdit.js的displayEditItinerary函数（传递完整tripData以便存储tripId）
     if (window.tripEditModule && window.tripEditModule.displayEditItinerary) {
       window.tripEditModule.displayEditItinerary(tripData.itinerary, tripData);

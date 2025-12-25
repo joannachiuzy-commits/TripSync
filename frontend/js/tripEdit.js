@@ -6,6 +6,75 @@
 let currentEditTrip = null;
 
 /**
+ * 获取当前登录用户ID（修复版本）
+ * @returns {string|null} 用户ID，未登录返回null
+ */
+function getCurrentLoginUserId() {
+  const currentUser = window.userModule?.getCurrentUser();
+  if (!currentUser || !currentUser.userId) {
+    // 未登录用户，不跳转（由调用方决定是否跳转）
+    return null;
+  }
+  return currentUser.userId;
+}
+
+/**
+ * 检查当前用户是否有权修改该行程（带调试日志）
+ * @param {string|number} tripId 行程ID
+ * @returns {Promise<boolean>} 是否有权限
+ */
+async function checkTripModifyPermission(tripId) {
+  try {
+    const currentUserId = getCurrentLoginUserId();
+    
+    if (!currentUserId) {
+      console.log('权限校验调试：未登录用户');
+      return false;
+    }
+
+    // 从后端获取行程详情（包含userId字段）
+    const data = await window.api.get('/trip/get', { tripId });
+    const trip = data.trip;
+
+    if (!trip) {
+      console.log('权限校验调试：行程不存在，tripId:', tripId);
+      return false;
+    }
+
+    // 补全缺失的权限字段（兼容旧数据）
+    // 如果旧行程没有creatorId，使用userId作为creatorId
+    if (!trip.hasOwnProperty('creatorId')) {
+      trip.creatorId = trip.userId || currentUserId;
+    }
+    if (!trip.hasOwnProperty('collaborators')) {
+      trip.collaborators = [];
+    }
+
+    // 权限规则：行程创建者（creatorId或userId匹配）或协作者可修改
+    const isCreator = (trip.creatorId === currentUserId) || (trip.userId === currentUserId);
+    const isCollaborator = Array.isArray(trip.collaborators) && trip.collaborators.includes(currentUserId);
+    const hasPermission = isCreator || isCollaborator;
+
+    // 调试日志
+    console.log('权限校验调试：', {
+      currentUserId,
+      tripId,
+      tripCreatorId: trip.creatorId || trip.userId,
+      tripUserId: trip.userId,
+      tripCollaborators: trip.collaborators,
+      isCreator,
+      isCollaborator,
+      hasPermission
+    });
+
+    return hasPermission;
+  } catch (error) {
+    console.error('权限校验失败:', error);
+    return false;
+  }
+}
+
+/**
  * 加载行程列表
  */
 async function loadTripList() {
@@ -74,8 +143,28 @@ async function loadTrip() {
   }
 
   try {
-    const data = await window.api.get('/trip/get', { tripId });
+    // 修复：获取当前用户ID，确保与后端一致
+    const currentUser = window.userModule?.getCurrentUser();
+    let userId = null;
+    if (currentUser && currentUser.userId) {
+      userId = currentUser.userId;
+    }
+
+    // 调用后端接口获取行程（携带用户ID，确保权限校验通过）
+    const data = await window.api.get('/trip/get', { 
+      tripId,
+      userId: userId // 新增：传递用户ID
+    });
     currentEditTrip = data.trip;
+    
+    // 修复：补全缺失的权限字段（兼容旧数据）
+    if (!currentEditTrip.hasOwnProperty('creatorId')) {
+      const currentUserId = getCurrentLoginUserId();
+      currentEditTrip.creatorId = currentEditTrip.userId || currentUserId;
+    }
+    if (!currentEditTrip.hasOwnProperty('collaborators')) {
+      currentEditTrip.collaborators = [];
+    }
     
     // 加载后先过滤空天数
     if (currentEditTrip.itinerary && Array.isArray(currentEditTrip.itinerary)) {
@@ -86,11 +175,43 @@ async function loadTrip() {
       currentEditTrip.days = currentEditTrip.itinerary.length;
     }
     
-    displayEditItinerary(currentEditTrip.itinerary);
+    // 新增：权限校验+按钮状态控制
+    const hasPermission = await checkTripModifyPermission(tripId);
+    updateModifyButtonsState(hasPermission);
+    
+    displayEditItinerary(currentEditTrip.itinerary, currentEditTrip);
     document.getElementById('editTripContainer').style.display = 'block';
   } catch (error) {
     // 错误已在 api.js 中处理
   }
+}
+
+/**
+ * 更新修改按钮的状态（启用/禁用）- 扩展版本
+ * @param {boolean} hasPermission 是否有权限
+ */
+function updateModifyButtonsState(hasPermission) {
+  // 扩展权限控制到所有操作按钮
+  const modifyButtons = [
+    '#btnAgentModify', // 智能修改行程按钮
+    '#btnOptimizeWithFavorite', // 基于攻略优化按钮
+    '#saveTripBtn', // 保存修改按钮
+    '.btn-add' // 新增：添加项目按钮（所有添加按钮）
+  ];
+
+  modifyButtons.forEach(selector => {
+    const buttons = document.querySelectorAll(selector);
+    buttons.forEach(btn => {
+      if (btn) {
+        // 设置disabled属性，CSS的:disabled选择器会自动应用样式
+        btn.disabled = !hasPermission;
+        // 设置透明度（视觉反馈）
+        btn.style.opacity = hasPermission ? '1' : '0.6';
+        // 设置指针样式
+        btn.style.cursor = hasPermission ? 'pointer' : 'not-allowed';
+      }
+    });
+  });
 }
 
 /**
@@ -154,13 +275,36 @@ function displayEditItinerary(itinerary, tripData = null) {
 /**
  * 添加行程项目
  * 【游客权限逻辑】游客模式下需要登录才能添加行程项目
+ * 【权限校验】检查是否有权限修改该行程
  */
-function addTripItem(dayIndex) {
+async function addTripItem(dayIndex) {
   // 【游客权限逻辑】检查是否为游客模式，游客无法编辑行程
   if (!window.userModule.isLoggedIn()) {
     window.userModule.showLoginGuideModal();
     return; // 阻止后续操作
   }
+
+  // 【权限校验】检查是否有权限修改该行程
+  const editPanel = document.querySelector('.trip-edit-panel');
+  const editContainer = document.getElementById('editTripContainer');
+  let currentTripId = null;
+  
+  if (editPanel && editPanel.dataset.currentTripId) {
+    currentTripId = editPanel.dataset.currentTripId;
+  } else if (editContainer && editContainer.dataset.currentTripId) {
+    currentTripId = editContainer.dataset.currentTripId;
+  } else if (currentEditTrip && currentEditTrip.tripId) {
+    currentTripId = String(currentEditTrip.tripId);
+  }
+
+  if (currentTripId) {
+    const hasPermission = await checkTripModifyPermission(currentTripId);
+    if (!hasPermission) {
+      window.api.showToast('您无权修改该行程', 'error');
+      return;
+    }
+  }
+
   const daySection = document.querySelector(`.day-section[data-day-index="${dayIndex}"] .day-items`);
   if (!daySection) return;
 
@@ -438,22 +582,6 @@ async function handleFavoriteOptimize() {
   }
 
   try {
-    // 1. 获取选中的攻略、自定义优化需求、当前行程
-    const linkId = linkSelect.value;
-    // 核心修改：从自定义输入框获取需求，而非下拉框
-    const customDemand = demandInput.value.trim();
-
-    // 新增校验：自定义需求不能为空
-    if (!linkId) {
-      window.api.showToast('请选择攻略', 'warning');
-      return;
-    }
-
-    if (!customDemand) {
-      window.api.showToast('请输入优化需求', 'warning');
-      return;
-    }
-
     // 获取当前编辑行程的tripId
     const editPanel = document.querySelector('.trip-edit-panel');
     const editContainer = document.getElementById('editTripContainer');
@@ -472,16 +600,48 @@ async function handleFavoriteOptimize() {
       return;
     }
 
-    // 2. 禁用按钮，显示加载状态
+    // 新增：前置权限校验
+    const hasPermission = await checkTripModifyPermission(currentTripId);
+    if (!hasPermission) {
+      window.api.showToast('您无权修改该行程', 'error');
+      return;
+    }
+
+    // 1. 获取选中的攻略、自定义优化需求、当前行程
+    const linkId = linkSelect.value;
+    // 核心修改：从自定义输入框获取需求，而非下拉框
+    const customDemand = demandInput.value.trim();
+
+    // 新增校验：自定义需求不能为空
+    if (!linkId) {
+      window.api.showToast('请选择攻略', 'warning');
+      return;
+    }
+
+    if (!customDemand) {
+      window.api.showToast('请输入优化需求', 'warning');
+      return;
+    }
+
+    // 2. 获取当前用户ID（核心修复：补充用户ID传递）
+    const currentUser = window.userModule?.getCurrentUser();
+    if (!currentUser || !currentUser.userId) {
+      window.api.showToast('用户身份异常，请刷新页面', 'error');
+      return;
+    }
+    const userId = currentUser.userId; // 兼容正式用户和游客（游客的userId就是guestId）
+
+    // 3. 禁用按钮，显示加载状态
     optimizeBtn.disabled = true;
     optimizeBtn.textContent = '优化中...';
     window.api.showLoadingOverlay();
 
-    // 3. 调用后端API进行优化（核心修改：传递自定义需求）
+    // 4. 调用后端API进行优化（核心修复：传递用户ID）
     const response = await window.api.post('/trip/optimize-with-favorite', {
       tripId: currentTripId,
       collectionId: linkId,
-      demand: customDemand
+      demand: customDemand,
+      userId: userId // 新增：传递用户ID（兼容正式用户/游客）
     });
 
     if (!response || !response.trip) {
@@ -490,7 +650,7 @@ async function handleFavoriteOptimize() {
 
     let optimizedTrip = response.trip;
 
-    // 4. 优化后过滤空天数（移除无项目的天数）
+    // 5. 优化后过滤空天数（移除无项目的天数）
     if (optimizedTrip.itinerary && Array.isArray(optimizedTrip.itinerary)) {
       optimizedTrip.itinerary = optimizedTrip.itinerary.filter(day => {
         return day.items && Array.isArray(day.items) && day.items.length > 0;
@@ -499,13 +659,13 @@ async function handleFavoriteOptimize() {
       optimizedTrip.days = optimizedTrip.itinerary.length;
     }
 
-    // 5. 更新当前编辑的行程数据
+    // 6. 更新当前编辑的行程数据
     currentEditTrip = optimizedTrip;
     if (window.tripEditModule) {
       window.tripEditModule.currentEditTrip = optimizedTrip;
     }
 
-    // 6. 更新编辑面板的tripId（双重保障）
+    // 7. 更新编辑面板的tripId（双重保障）
     if (editPanel) {
       editPanel.dataset.currentTripId = String(optimizedTrip.tripId);
     }
@@ -513,7 +673,7 @@ async function handleFavoriteOptimize() {
       editContainer.dataset.currentTripId = String(optimizedTrip.tripId);
     }
 
-    // 7. 更新行程标题
+    // 8. 更新行程标题
     const titleEl = document.getElementById('editTripTitle');
     if (titleEl) {
       titleEl.textContent = optimizedTrip.title || '未命名行程';
@@ -523,10 +683,10 @@ async function handleFavoriteOptimize() {
       }
     }
 
-    // 8. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
+    // 9. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
     displayEditItinerary(optimizedTrip.itinerary, optimizedTrip);
 
-    // 9. 更新本地存储（同步到trip_list）
+    // 10. 更新本地存储（同步到trip_list）
     try {
       let tripList = [];
       const listData = localStorage.getItem('trip_list');
@@ -554,17 +714,23 @@ async function handleFavoriteOptimize() {
       console.warn('更新localStorage失败:', error);
     }
 
-    // 10. 刷新行程列表（如果存在）
+    // 11. 刷新行程列表（如果存在）
     if (window.tripListManager && window.tripListManager.loadAllTrips) {
       window.tripListManager.loadAllTrips();
     }
 
-    // 11. 显示成功提示
+    // 12. 显示成功提示
     window.api.showToast(`基于攻略优化完成（使用${response.modelName || '通义千问'}），可保存修改`, 'success');
 
   } catch (error) {
     console.error('攻略优化失败:', error);
-    window.api.showToast('攻略优化失败：' + (error.message || '请检查攻略内容或稍后重试'), 'error');
+    // 调整：异常提示更精准
+    const errorMsg = error.message || '请检查攻略内容或稍后重试';
+    if (errorMsg.includes('无权')) {
+      window.api.showToast('您无权修改该行程', 'error');
+    } else {
+      window.api.showToast('攻略优化失败：' + errorMsg, 'error');
+    }
   } finally {
     // 恢复按钮状态
     if (optimizeBtn) {
@@ -605,6 +771,13 @@ async function handleAgentModify() {
       return;
     }
 
+    // 新增：前置权限校验
+    const hasPermission = await checkTripModifyPermission(currentTripId);
+    if (!hasPermission) {
+      window.api.showToast('您无权修改该行程', 'error');
+      return;
+    }
+
     // 2. 获取用户输入的修改指令
     const userPrompt = promptInput.value.trim();
     if (!userPrompt) {
@@ -617,10 +790,19 @@ async function handleAgentModify() {
     modifyBtn.textContent = 'AI修改中...';
     window.api.showLoadingOverlay();
 
-    // 4. 调用后端API进行智能修改
+    // 4. 获取当前用户ID（核心修复：补充用户ID传递）
+    const currentUser = window.userModule?.getCurrentUser();
+    if (!currentUser || !currentUser.userId) {
+      window.api.showToast('用户身份异常，请刷新页面', 'error');
+      return;
+    }
+    const userId = currentUser.userId; // 兼容正式用户和游客
+
+    // 5. 调用后端API进行智能修改（核心修复：传递用户ID）
     const response = await window.api.post('/trip/modify', {
       tripId: currentTripId,
-      userPrompt: userPrompt
+      userPrompt: userPrompt,
+      userId: userId // 新增：传递用户ID（兼容正式用户/游客）
     });
 
     if (!response || !response.trip) {
@@ -706,7 +888,13 @@ async function handleAgentModify() {
 
   } catch (error) {
     console.error('智能修改失败:', error);
-    window.api.showToast('智能修改失败：' + (error.message || '请检查指令或稍后重试'), 'error');
+    // 调整：异常提示更精准
+    const errorMsg = error.message || '请检查指令或稍后重试';
+    if (errorMsg.includes('无权')) {
+      window.api.showToast('您无权修改该行程', 'error');
+    } else {
+      window.api.showToast('智能修改失败：' + errorMsg, 'error');
+    }
   } finally {
     // 恢复按钮状态
     const modifyBtn = document.getElementById('btnAgentModify');
@@ -716,6 +904,92 @@ async function handleAgentModify() {
     }
     window.api.hideLoadingOverlay();
   }
+}
+
+/**
+ * 初始化输入框和拖拽操作的权限拦截
+ */
+function initPermissionInterceptors() {
+  // 拦截输入框修改操作
+  document.addEventListener('input', async function(e) {
+    // 匹配行程编辑区的输入框（时间、地点、描述）
+    const editPanel = document.querySelector('.trip-edit-panel');
+    if (!editPanel || !editPanel.contains(e.target)) {
+      return;
+    }
+
+    // 检查是否是行程编辑相关的输入框
+    if (e.target.matches('.item-time, .item-place, .item-description, .day-date')) {
+      const currentTripId = editPanel.dataset.currentTripId || 
+                           document.getElementById('editTripContainer')?.dataset.currentTripId;
+      
+      if (currentTripId) {
+        const hasPermission = await checkTripModifyPermission(currentTripId);
+        if (!hasPermission) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.api.showToast('您无权修改该行程', 'error');
+          
+          // 恢复输入框原有值
+          const originalValue = e.target.dataset.originalValue || e.target.defaultValue || '';
+          e.target.value = originalValue;
+          return false;
+        } else {
+          // 记录原始值（用于拦截时恢复）
+          if (!e.target.dataset.originalValue) {
+            e.target.dataset.originalValue = e.target.value;
+          }
+        }
+      }
+    }
+  }, true); // 使用捕获阶段，确保在输入前拦截
+
+  // 拦截拖拽操作
+  document.addEventListener('dragstart', async function(e) {
+    const editPanel = document.querySelector('.trip-edit-panel');
+    if (!editPanel || !editPanel.contains(e.target)) {
+      return;
+    }
+
+    // 检查是否是行程项目拖拽
+    if (e.target.closest('.editable-item, .day-section')) {
+      const currentTripId = editPanel.dataset.currentTripId || 
+                           document.getElementById('editTripContainer')?.dataset.currentTripId;
+      
+      if (currentTripId) {
+        const hasPermission = await checkTripModifyPermission(currentTripId);
+        if (!hasPermission) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.api.showToast('您无权修改该行程', 'error');
+          return false;
+        }
+      }
+    }
+  }, true);
+
+  // 拦截删除按钮点击（双重保障）
+  document.addEventListener('click', async function(e) {
+    if (e.target.matches('.btn-delete') || e.target.closest('.btn-delete')) {
+      const editPanel = document.querySelector('.trip-edit-panel');
+      if (!editPanel || !editPanel.contains(e.target)) {
+        return;
+      }
+
+      const currentTripId = editPanel.dataset.currentTripId || 
+                           document.getElementById('editTripContainer')?.dataset.currentTripId;
+      
+      if (currentTripId) {
+        const hasPermission = await checkTripModifyPermission(currentTripId);
+        if (!hasPermission) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.api.showToast('您无权修改该行程', 'error');
+          return false;
+        }
+      }
+    }
+  }, true);
 }
 
 /**
@@ -743,6 +1017,9 @@ function initTripEdit() {
   // 初始化收藏夹攻略优化功能
   initFavoriteOptimizer();
 
+  // 初始化权限拦截器（输入框、拖拽等操作）
+  initPermissionInterceptors();
+
   // 将函数挂载到全局，供 HTML 中的 onclick 使用
   window.addTripItem = addTripItem;
   window.deleteTripItem = deleteTripItem;
@@ -760,6 +1037,10 @@ window.tripEditModule = {
   loadFavoriteLinks,
   initFavoriteOptimizer,
   handleFavoriteOptimize,
+  getCurrentLoginUserId, // 导出用户ID获取函数
+  checkTripModifyPermission, // 导出权限校验函数
+  updateModifyButtonsState, // 导出按钮状态控制函数
+  initPermissionInterceptors, // 导出权限拦截器初始化函数
   currentEditTrip // 导出currentEditTrip供其他模块使用
 };
 

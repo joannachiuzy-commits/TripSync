@@ -373,6 +373,16 @@ router.delete('/delete', async (req, res) => {
 router.post('/modify', async (req, res) => {
   try {
     const { tripId, userPrompt } = req.body;
+    const userId = getUserId(req);
+
+    // 新增：1. 校验用户ID存在性（优先校验，避免空值导致的误判）
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户身份未识别，请重新加载页面'
+      });
+    }
 
     if (!tripId || !userPrompt) {
       return res.json({
@@ -390,6 +400,28 @@ router.post('/modify', async (req, res) => {
         code: 1,
         data: null,
         msg: '行程不存在'
+      });
+    }
+
+    // 新增：2. 兼容游客用户ID格式（确保与行程的userId格式一致）
+    const isGuest = userId.startsWith('guest_');
+    const tripIsGuest = trip.userId && trip.userId.startsWith('guest_');
+    
+    // 如果用户类型不匹配，给出更明确的错误提示
+    if (isGuest !== tripIsGuest) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户身份与行程创建者类型不匹配（游客/正式用户）'
+      });
+    }
+
+    // 验证行程所有权（与攻略优化保持一致）
+    if (trip.userId !== userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '无权修改该行程'
       });
     }
 
@@ -524,6 +556,16 @@ router.post('/optimize-with-favorite', async (req, res) => {
     const { tripId, collectionId, demand } = req.body;
     const userId = getUserId(req);
 
+    // 新增：1. 校验用户ID存在性（优先校验，避免空值导致的误判）
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户身份未识别，请重新加载页面'
+      });
+    }
+
+    // 原有校验逻辑（调整顺序，先校验必填参数）
     if (!tripId || !collectionId || !demand) {
       return res.json({
         code: 1,
@@ -543,7 +585,20 @@ router.post('/optimize-with-favorite', async (req, res) => {
       });
     }
 
-    // 验证行程所有权
+    // 新增：2. 兼容游客用户ID格式（确保与行程的userId格式一致）
+    const isGuest = userId.startsWith('guest_');
+    const tripIsGuest = trip.userId && trip.userId.startsWith('guest_');
+    
+    // 如果用户类型不匹配，给出更明确的错误提示
+    if (isGuest !== tripIsGuest) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '用户身份与行程创建者类型不匹配（游客/正式用户）'
+      });
+    }
+
+    // 原有权限校验逻辑
     if (trip.userId !== userId) {
       return res.json({
         code: 1,
