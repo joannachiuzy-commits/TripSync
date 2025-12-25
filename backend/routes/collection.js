@@ -8,7 +8,7 @@ const router = express.Router();
 const axios = require('axios');
 const { readJsonFile, appendToJsonArray, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
 const { getOrCreateGuestUser } = require('./user');
-const { extractTagsByGPT } = require('../utils/gptTagExtractor');
+const { extractTagsByGPT, parseContentTypeAndKeywords } = require('../utils/gptTagExtractor');
 const { getUserId } = require('../utils/requestHelper');
 const crypto = require('crypto');
 
@@ -595,17 +595,27 @@ router.post('/parse', async (req, res) => {
         console.log(`[小红书解析] 最终提取地点: ${uniquePlaces.join(', ')}`);
       }
 
-      // 步骤6：使用大模型提取标签（从正文中提取景点/地点标签）
+      // 步骤6：使用大模型判断内容类型并提取对应关键词（新增功能）
+      let contentType = '其他';
       let tags = [];
       if (contentText && contentText !== '无法获取笔记正文' && contentText !== '未获取到笔记内容') {
         try {
-          console.log('[小红书解析] 开始使用大模型提取标签...');
-          tags = await extractTagsByGPT(contentText);
-          console.log(`[小红书解析] 大模型提取到标签: ${tags.join(', ')}`);
-        } catch (tagError) {
-          console.error('[小红书解析] 大模型标签提取失败:', tagError.message);
-          // 如果大模型提取失败，使用原有的地点列表作为标签
-          tags = uniquePlaces;
+          console.log('[小红书解析] 开始使用大模型判断类型并提取关键词...');
+          const parseResult = await parseContentTypeAndKeywords(title, contentText);
+          contentType = parseResult.type || '其他';
+          tags = parseResult.keywords || [];
+          console.log(`[小红书解析] AI识别类型: ${contentType}, 提取关键词: ${tags.join(', ')}`);
+        } catch (parseError) {
+          console.error('[小红书解析] 大模型类型判断和关键词提取失败:', parseError.message);
+          // 如果大模型提取失败，使用原有的标签提取方法作为降级
+          try {
+            tags = await extractTagsByGPT(contentText);
+            console.log(`[小红书解析] 降级方案提取到标签: ${tags.join(', ')}`);
+          } catch (tagError) {
+            console.error('[小红书解析] 降级标签提取也失败:', tagError.message);
+            // 如果都失败，使用原有的地点列表作为标签
+            tags = uniquePlaces;
+          }
         }
       } else {
         // 如果没有正文，使用原有的地点列表作为标签
@@ -617,7 +627,8 @@ router.post('/parse', async (req, res) => {
         title: title || '未获取到标题',
         content: contentText || '未获取到笔记内容',
         places: uniquePlaces,
-        tags: tags // 新增：大模型提取的标签
+        tags: tags, // 新增：大模型提取的标签
+        type: contentType // 新增：AI识别的内容类型
       };
       
       // 验证解析结果质量

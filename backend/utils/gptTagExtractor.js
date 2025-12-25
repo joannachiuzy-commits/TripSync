@@ -199,8 +199,189 @@ function oldKeywordTagExtractor(content) {
   return uniqueTags;
 }
 
+/**
+ * AI判断内容类型并提取对应关键词（新增功能）
+ * @param {string} title 小红书笔记标题
+ * @param {string} content 小红书笔记正文
+ * @returns {Promise<{type: string, keywords: Array<string>}>} 返回类型和关键词
+ */
+async function parseContentTypeAndKeywords(title, content) {
+  // 如果没有配置API密钥，使用降级方案
+  if (!QWEN_API_KEY) {
+    console.log('[内容解析] 使用降级方案：仅提取地点标签');
+    const tags = oldKeywordTagExtractor(content);
+    return {
+      type: '其他',
+      keywords: tags
+    };
+  }
+
+  // 如果内容为空或过短，使用降级方案
+  const fullText = `${title || ''}\n${content || ''}`.trim();
+  if (fullText.length < 10) {
+    console.log('[内容解析] 内容过短，使用降级方案');
+    const tags = oldKeywordTagExtractor(content);
+    return {
+      type: '其他',
+      keywords: tags
+    };
+  }
+
+  try {
+    console.log('[内容解析] 使用通义千问判断类型并提取关键词，内容长度:', fullText.length);
+    
+    // 构建通义千问API请求
+    const prompt = `请完成以下任务：
+
+1. 判断以下小红书内容的类型（可选：美食、景点、游玩攻略、其他）；
+2. 根据类型提取对应关键词：
+   - 美食类：提取所有餐厅/店铺的名字（如"李百蟹蟹黄面"、"泮芳春煎饺"）；
+   - 景点类：提取所有景点的名字（如"杭州西湖"、"灵隐寺"）；
+   - 游玩攻略类：提取核心地点/主题词；
+   - 其他类：提取核心地点/主题词；
+
+3. 返回标准JSON格式，包含字段：
+   - type（内容类型，字符串）："美食"、"景点"、"游玩攻略"、"其他"之一
+   - keywords（关键词数组，字符串数组）：根据类型提取的关键词列表
+
+要求：
+- 只返回JSON对象，不要加任何额外文字/解释
+- keywords数组中的每个元素都是字符串
+- 不重复提取关键词
+- 美食类必须提取餐厅/店铺名称，不要提取地点
+
+示例（美食类）：
+{
+  "type": "美食",
+  "keywords": ["李百蟹蟹黄面", "泮芳春煎饺", "龙翔臭豆腐"]
+}
+
+示例（景点类）：
+{
+  "type": "景点",
+  "keywords": ["杭州西湖", "灵隐寺", "西溪湿地"]
+}
+
+小红书内容：
+标题：${title || '无标题'}
+正文：${fullText.length > 2000 ? fullText.substring(0, 2000) + '...' : fullText}`;
+
+    const response = await axios.post(
+      QWEN_API_URL,
+      {
+        model: QWEN_DEFAULT_MODEL,
+        input: {
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ]
+        },
+        parameters: {
+          result_format: "message",
+          temperature: 0, // 降低随机性，保证精准
+          top_p: 0.8
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${QWEN_API_KEY}`
+        },
+        timeout: AXIOS_TIMEOUT
+      }
+    );
+
+    // 适配通义千问返回格式
+    const aiContent = response.data.output?.choices?.[0]?.message?.content || 
+                      response.data.output?.text || 
+                      '';
+    
+    if (!aiContent) {
+      throw new Error('通义千问返回内容为空');
+    }
+
+    // 预处理：提取JSON对象
+    let jsonStr = aiContent.trim()
+      .replace(/[\n\r]/g, "") // 去掉换行
+      .replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*?$/, "$1"); // 提取大括号包裹的JSON对象
+
+    console.log('[内容解析] 通义千问返回原始结果:', aiContent.trim());
+    console.log('[内容解析] 预处理后的结果:', jsonStr);
+
+    // 解析JSON
+    let result;
+    try {
+      result = JSON.parse(jsonStr);
+      
+      // 验证结果格式
+      if (!result || typeof result !== 'object') {
+        throw new Error("返回的不是有效的JSON对象");
+      }
+
+      // 验证type字段
+      const validTypes = ['美食', '景点', '游玩攻略', '其他'];
+      if (!result.type || !validTypes.includes(result.type)) {
+        console.warn('[内容解析] 类型不在预期范围内，使用默认值"其他"');
+        result.type = '其他';
+      }
+
+      // 验证keywords字段
+      if (!Array.isArray(result.keywords)) {
+        result.keywords = [];
+      }
+
+      // 过滤和清理关键词
+      result.keywords = result.keywords
+        .filter(kw => kw && typeof kw === 'string' && kw.trim().length > 0)
+        .map(kw => kw.trim())
+        .filter((kw, index, self) => self.indexOf(kw) === index); // 去重
+
+      console.log('[内容解析] 通义千问成功解析 - 类型:', result.type, '关键词:', result.keywords);
+      return result;
+    } catch (parseError) {
+      console.error('[内容解析] JSON解析失败，降级到关键词匹配：', parseError.message);
+      const tags = oldKeywordTagExtractor(content);
+      return {
+        type: '其他',
+        keywords: tags
+      };
+    }
+  } catch (error) {
+    // 打印详细错误
+    const errorDetails = {
+      message: error.message,
+      type: error.constructor.name,
+      code: error.code
+    };
+    
+    if (error.request) {
+      errorDetails.requestUrl = error.request.url || error.request.path;
+      errorDetails.requestMethod = error.request.method;
+    }
+    
+    if (error.response) {
+      errorDetails.responseStatus = error.response.status;
+      errorDetails.responseStatusText = error.response.statusText;
+      errorDetails.responseData = error.response.data;
+    }
+    
+    console.error('[内容解析] 通义千问调用详细错误：', JSON.stringify(errorDetails, null, 2));
+    console.error('[内容解析] 错误堆栈：', error.stack);
+    
+    // 降级到关键词匹配
+    const tags = oldKeywordTagExtractor(content);
+    return {
+      type: '其他',
+      keywords: tags
+    };
+  }
+}
+
 module.exports = { 
   extractTagsByGPT,
-  oldKeywordTagExtractor 
+  oldKeywordTagExtractor,
+  parseContentTypeAndKeywords // 新增导出
 };
 

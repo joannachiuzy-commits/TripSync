@@ -30,13 +30,20 @@ async function parseXiaohongshuUrl() {
       title: data.title || '未获取到标题',
       content: data.content || '',
       places: data.places || [],
-      tags: tags // 新增：大模型提取的标签
+      tags: tags, // 新增：大模型提取的标签
+      type: data.type || '其他' // 新增：AI识别的内容类型
     };
 
     // 显示解析结果
     document.getElementById('parseTitle').textContent = currentParseData.title;
     document.getElementById('parseContent').textContent = 
       currentParseData.content || '未获取到内容';
+    
+    // 显示AI识别的内容类型
+    const contentTypeElement = document.getElementById('parseContentType');
+    if (contentTypeElement) {
+      contentTypeElement.textContent = currentParseData.type || '其他';
+    }
     
     // 初始化解析结果的标签（优先使用tags，如果没有则使用places）
     const tagsToShow = currentParseData.tags && currentParseData.tags.length > 0 
@@ -54,10 +61,15 @@ async function parseXiaohongshuUrl() {
         title: '',
         content: '',
         places: [],
-        tags: []
+        tags: [],
+        type: '其他'
       };
       document.getElementById('parseTitle').textContent = '';
       document.getElementById('parseContent').textContent = '';
+      const contentTypeElement = document.getElementById('parseContentType');
+      if (contentTypeElement) {
+        contentTypeElement.textContent = '其他';
+      }
       initParseResultTags([]);
       document.getElementById('parseResult').style.display = 'block';
     }

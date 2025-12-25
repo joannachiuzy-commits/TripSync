@@ -129,12 +129,18 @@
               <strong>标题：</strong>
               <span id="parseTitle"></span>
             </div>
+            <!-- 新增：AI识别的内容类型 -->
+            <div class="result-item">
+              <strong>内容类型（AI识别）：</strong>
+              <span id="parseContentType" class="content-type">-</span>
+            </div>
             <div class="result-item">
               <strong>内容：</strong>
               <div id="parseContent"></div>
             </div>
+            <!-- 修改：提取关键词（美食→餐厅名，景点→景点名） -->
             <div class="result-item">
-              <strong>提取地点：</strong>
+              <strong>提取关键词：</strong>
               <div class="parse-result-tag-group">
                 <!-- 动态生成的标签项（带删除按钮） -->
                 <div class="collection-tags" id="parseResultTags">
