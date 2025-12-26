@@ -1088,6 +1088,48 @@ body {
   margin-top: 0.5rem;
 }
 
+/* 收藏搜索区域 */
+.collection-search-group {
+  margin-bottom: 0.75rem;
+}
+
+.collection-search-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.collection-search-input:focus {
+  outline: none;
+  border-color: #28a745;
+}
+
+/* 智能行程优化区域的搜索框 */
+.favorite-search-group {
+  margin-bottom: 8px;
+}
+
+.favorite-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.favorite-search-input:focus {
+  outline: none;
+  border-color: #28a745;
+}
+
 /* 复选框容器 */
 .checkboxes-container {
   max-height: 300px;

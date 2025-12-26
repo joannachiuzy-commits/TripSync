@@ -11,6 +11,9 @@ let tempParseTags = [];
 // 存储所有收藏项（用于搜索过滤）
 let allCollections = [];
 
+// 存储生成行程页面的所有收藏项（用于搜索过滤）
+let allCollectionCheckboxes = [];
+
 /**
  * 解析小红书链接
  */
@@ -343,17 +346,60 @@ function clearTagSearch() {
 }
 
 /**
+ * 根据关键词过滤收藏项（用于生成行程页面）
+ * @param {Array} collections - 收藏项数组
+ * @param {string} keyword - 搜索关键词
+ * @returns {Array} 过滤后的收藏项数组
+ */
+function filterCollectionsForCheckboxes(collections, keyword) {
+  if (!keyword || !keyword.trim()) {
+    return collections;
+  }
+
+  const lowerKeyword = keyword.toLowerCase().trim();
+  
+  return collections.filter(collection => {
+    // 匹配标题
+    const titleMatch = collection.title && 
+      collection.title.toLowerCase().includes(lowerKeyword);
+    
+    // 匹配标签（优先使用tags，如果没有则使用places）
+    const tagsToSearch = (collection.tags && collection.tags.length > 0) 
+      ? collection.tags 
+      : (collection.places || []);
+    
+    const tagMatch = tagsToSearch.some(tag => 
+      tag && tag.toString().toLowerCase().includes(lowerKeyword)
+    );
+    
+    return titleMatch || tagMatch;
+  });
+}
+
+/**
  * 更新生成行程页面的收藏复选框
  */
 function updateCollectionCheckboxes(collections) {
+  // 保存所有收藏项（用于搜索过滤）
+  allCollectionCheckboxes = collections;
+  
+  // 应用搜索过滤
+  const searchInput = document.getElementById('collectionSearchInput');
+  const keyword = searchInput ? searchInput.value.trim() : '';
+  const filteredCollections = filterCollectionsForCheckboxes(collections, keyword);
+  
   const container = document.getElementById('collectionCheckboxes');
   
-  if (collections.length === 0) {
-    container.innerHTML = '<p class="empty-tip">暂无收藏，请先到收藏夹添加</p>';
+  if (filteredCollections.length === 0) {
+    if (keyword) {
+      container.innerHTML = '<p class="empty-tip">未找到匹配的收藏项</p>';
+    } else {
+      container.innerHTML = '<p class="empty-tip">暂无收藏，请先到收藏夹添加</p>';
+    }
     return;
   }
 
-  container.innerHTML = collections.map(collection => {
+  container.innerHTML = filteredCollections.map(collection => {
     // 优先使用tags，如果没有则使用places
     const tagsToShow = (collection.tags && collection.tags.length > 0) 
       ? collection.tags 
@@ -787,6 +833,17 @@ function initCollection() {
     tagSearchInput.addEventListener('input', (e) => {
       if (!e.target.value.trim()) {
         loadCollections();
+      }
+    });
+  }
+
+  // 生成行程页面的收藏搜索框（实时搜索）
+  const collectionSearchInput = document.getElementById('collectionSearchInput');
+  if (collectionSearchInput) {
+    collectionSearchInput.addEventListener('input', (e) => {
+      // 实时过滤收藏列表
+      if (allCollectionCheckboxes.length > 0) {
+        updateCollectionCheckboxes(allCollectionCheckboxes);
       }
     });
   }

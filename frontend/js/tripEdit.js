@@ -5,6 +5,9 @@
 
 let currentEditTrip = null;
 
+// 存储智能行程优化的所有收藏项（用于搜索过滤）
+let allFavoriteLinks = [];
+
 // ==================== 工具函数：整合重复逻辑 ====================
 
 /**
@@ -933,6 +936,85 @@ function initSmartOptimizer() {
       optimizeBtn.click();
     }
   });
+
+  // 智能行程优化的收藏搜索框（实时搜索）
+  const favoriteSearchInput = document.getElementById('favoriteSearchInput');
+  if (favoriteSearchInput) {
+    favoriteSearchInput.addEventListener('input', (e) => {
+      // 实时过滤收藏列表
+      if (allFavoriteLinks.length > 0) {
+        renderFavoriteLinks(allFavoriteLinks);
+      }
+    });
+  }
+}
+
+/**
+ * 根据关键词过滤收藏项（用于智能行程优化）
+ * @param {Array} favoriteLinks - 收藏项数组
+ * @param {string} keyword - 搜索关键词
+ * @returns {Array} 过滤后的收藏项数组
+ */
+function filterFavoriteLinks(favoriteLinks, keyword) {
+  if (!keyword || !keyword.trim()) {
+    return favoriteLinks;
+  }
+
+  const lowerKeyword = keyword.toLowerCase().trim();
+  
+  return favoriteLinks.filter(link => {
+    // 匹配标题
+    const titleMatch = link.title && 
+      link.title.toLowerCase().includes(lowerKeyword);
+    
+    // 匹配标签（优先使用tags，如果没有则使用places）
+    const tagsToSearch = (link.tags && link.tags.length > 0) 
+      ? link.tags 
+      : (link.places || []);
+    
+    const tagMatch = tagsToSearch.some(tag => 
+      tag && tag.toString().toLowerCase().includes(lowerKeyword)
+    );
+    
+    return titleMatch || tagMatch;
+  });
+}
+
+/**
+ * 渲染收藏夹链接列表到复选框组（支持搜索过滤）
+ * @param {Array} favoriteLinks - 收藏项数组
+ */
+function renderFavoriteLinks(favoriteLinks) {
+  const checkboxesContainer = document.getElementById('favoriteCheckboxes');
+  if (!checkboxesContainer) {
+    return;
+  }
+
+  // 应用搜索过滤
+  const searchInput = document.getElementById('favoriteSearchInput');
+  const keyword = searchInput ? searchInput.value.trim() : '';
+  const filteredLinks = filterFavoriteLinks(favoriteLinks, keyword);
+
+  checkboxesContainer.innerHTML = '';
+  
+  if (filteredLinks.length === 0) {
+    if (keyword) {
+      checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">未找到匹配的攻略</p>';
+    } else {
+      checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">暂无收藏的攻略</p>';
+    }
+    return;
+  }
+
+  filteredLinks.forEach(link => {
+    const labelEl = document.createElement('label');
+    labelEl.className = 'favorite-checkbox-item';
+    labelEl.innerHTML = `
+      <input type="checkbox" class="favorite-checkbox" value="${link.collectionId}">
+      <span>${window.utils.escapeHtml(link.title || '未命名攻略')}</span>
+    `;
+    checkboxesContainer.appendChild(labelEl);
+  });
 }
 
 /**
@@ -953,23 +1035,12 @@ async function loadFavoriteLinks() {
 
     const data = await window.api.get('/collection/list', { userId: user.userId });
     const favoriteLinks = data.collections || [];
-
-    checkboxesContainer.innerHTML = '';
     
-    if (favoriteLinks.length === 0) {
-      checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">暂无收藏的攻略</p>';
-      return;
-    }
-
-    favoriteLinks.forEach(link => {
-      const labelEl = document.createElement('label');
-      labelEl.className = 'favorite-checkbox-item';
-      labelEl.innerHTML = `
-        <input type="checkbox" class="favorite-checkbox" value="${link.collectionId}">
-        <span>${window.utils.escapeHtml(link.title || '未命名攻略')}</span>
-      `;
-      checkboxesContainer.appendChild(labelEl);
-    });
+    // 保存所有收藏项（用于搜索过滤）
+    allFavoriteLinks = favoriteLinks;
+    
+    // 渲染列表（会自动应用搜索过滤）
+    renderFavoriteLinks(favoriteLinks);
   } catch (error) {
     console.error('加载收藏夹链接失败:', error);
     checkboxesContainer.innerHTML = '<p class="empty-tip" style="font-size: 12px; color: #999;">加载失败</p>';
