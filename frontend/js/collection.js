@@ -8,6 +8,9 @@ let currentParseData = null;
 // 存储解析结果的临时标签（初始值为解析出的地点）
 let tempParseTags = [];
 
+// 存储所有收藏项（用于搜索过滤）
+let allCollections = [];
+
 /**
  * 解析小红书链接
  */
@@ -171,17 +174,25 @@ async function loadCollections() {
 
   try {
     const data = await window.api.get('/collection/list', { userId: user.userId });
-    const collections = data.collections || [];
+    allCollections = data.collections || [];
+
+    // 应用搜索过滤
+    const filteredCollections = filterCollectionsByTag(allCollections);
 
     const container = document.getElementById('collectionsList');
     
-    if (collections.length === 0) {
-      container.innerHTML = '<p class="empty-tip">暂无收藏，请先解析并收藏小红书链接</p>';
+    if (filteredCollections.length === 0) {
+      const searchKeyword = document.getElementById('tagSearchInput')?.value.trim() || '';
+      if (searchKeyword) {
+        container.innerHTML = '<p class="empty-tip">未找到匹配的收藏项</p>';
+      } else {
+        container.innerHTML = '<p class="empty-tip">暂无收藏，请先解析并收藏小红书链接</p>';
+      }
       return;
     }
 
     // 转义HTML特殊字符，防止XSS攻击
-    container.innerHTML = collections.map(collection => {
+    container.innerHTML = filteredCollections.map(collection => {
       const title = window.utils.escapeHtml(collection.title || '未命名收藏');
       // URL不需要转义，但需要验证和清理
       const url = (collection.url || '').trim();
@@ -273,10 +284,61 @@ async function loadCollections() {
     // 添加收藏笔记删除的交互逻辑
     setupCollectionDelete();
 
-    // 更新生成行程页面的收藏复选框
-    updateCollectionCheckboxes(collections);
+    // 更新生成行程页面的收藏复选框（使用原始数据，不过滤）
+    updateCollectionCheckboxes(allCollections);
   } catch (error) {
     // 错误已在 api.js 中处理
+  }
+}
+
+/**
+ * 根据标签关键词过滤收藏项
+ * @param {Array} collections - 收藏项数组
+ * @returns {Array} 过滤后的收藏项数组
+ */
+function filterCollectionsByTag(collections) {
+  const searchInput = document.getElementById('tagSearchInput');
+  if (!searchInput) {
+    return collections;
+  }
+
+  const keyword = searchInput.value.trim();
+  
+  // 如果搜索关键词为空，返回所有收藏项
+  if (!keyword) {
+    return collections;
+  }
+
+  // 模糊匹配：筛选标签包含关键词的收藏项
+  return collections.filter(collection => {
+    // 优先使用tags，如果没有则使用places
+    const tagsToSearch = (collection.tags && collection.tags.length > 0) 
+      ? collection.tags 
+      : (collection.places || []);
+    
+    // 检查是否有标签包含关键词（不区分大小写）
+    return tagsToSearch.some(tag => 
+      tag && tag.toString().toLowerCase().includes(keyword.toLowerCase())
+    );
+  });
+}
+
+/**
+ * 执行标签搜索
+ */
+function performTagSearch() {
+  // 重新渲染收藏列表（会自动应用搜索过滤）
+  loadCollections();
+}
+
+/**
+ * 清空搜索并恢复显示所有收藏项
+ */
+function clearTagSearch() {
+  const searchInput = document.getElementById('tagSearchInput');
+  if (searchInput) {
+    searchInput.value = '';
+    loadCollections();
   }
 }
 
@@ -705,6 +767,29 @@ function initCollection() {
       parseXiaohongshuUrl();
     }
   });
+
+  // 标签搜索按钮
+  const tagSearchBtn = document.getElementById('tagSearchBtn');
+  if (tagSearchBtn) {
+    tagSearchBtn.addEventListener('click', performTagSearch);
+  }
+
+  // 标签搜索输入框的回车键
+  const tagSearchInput = document.getElementById('tagSearchInput');
+  if (tagSearchInput) {
+    tagSearchInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        performTagSearch();
+      }
+    });
+
+    // 输入框内容变化时，如果为空则自动恢复显示所有收藏项
+    tagSearchInput.addEventListener('input', (e) => {
+      if (!e.target.value.trim()) {
+        loadCollections();
+      }
+    });
+  }
 
   // 加载收藏列表
   loadCollections();

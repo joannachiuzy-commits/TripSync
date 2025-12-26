@@ -418,6 +418,69 @@ body {
 }
 
 /* 收藏列表 */
+.collections-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.collections-header h3 {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+/* 搜索区域 */
+.search-group {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.tag-search-input {
+  width: 280px;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.tag-search-input:focus {
+  outline: none;
+  border-color: #28a745;
+}
+
+.tag-search-btn {
+  width: 80px;
+  padding: 0.75rem 1rem;
+  height: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 响应式：小屏幕时搜索区域换行 */
+@media (max-width: 768px) {
+  .collections-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .search-group {
+    width: 100%;
+  }
+  
+  .tag-search-input {
+    width: 100%;
+    flex: 1;
+  }
+}
+
 .list-container {
   background: var(--card-bg);
   border-radius: 5px;
