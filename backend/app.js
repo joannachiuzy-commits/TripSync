@@ -202,10 +202,19 @@ try {
   console.warn('   高德相关功能将不可用，请检查 .env 文件中的配置');
 }
 
+// 启动服务器前，确保data目录存在
+const fs = require('fs');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  console.log(`✅ 已创建data目录: ${dataDir}`);
+}
+
 // 启动服务器
 app.listen(PORT, () => {
   console.log(`🚀 TripSync 服务器已启动`);
   console.log(`📍 服务地址: http://localhost:${PORT}`);
   console.log(`📚 API 文档: http://localhost:${PORT}/api/docs`);
+  console.log(`📁 数据目录: ${dataDir}`);
 });
 

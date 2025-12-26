@@ -5,7 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem, deleteJsonArrayItem } = require('../utils/fileUtil');
+const { readJsonFile, appendToJsonArray, findJsonArrayItem, updateJsonArrayItem, deleteJsonArrayItem, writeJsonFile } = require('../utils/fileUtil');
 const { generateItinerary, callAIModel } = require('../utils/gptUtil');
 const { getOrCreateGuestUser } = require('./user');
 const { getUserId } = require('../utils/requestHelper');
@@ -178,7 +178,7 @@ router.get('/list', async (req, res) => {
  */
 router.get('/get', async (req, res) => {
   try {
-    const { tripId } = req.query;
+    const { tripId, tripData } = req.query;
     const userId = getUserId(req); // 获取当前用户ID（关联用户）
 
     if (!tripId) {
@@ -200,17 +200,108 @@ router.get('/get', async (req, res) => {
     // 核心修改1：统一tripId格式为字符串，兼容前后端格式差异
     const tripIdStr = String(tripId);
 
-    // 核心修改2：读取所有行程，使用字符串格式匹配tripId，同时匹配userId，确保归属正确
+    // 核心修改2：读取所有行程，使用字符串格式匹配tripId
     const trips = await readJsonFile('trips.json');
-    const trip = trips.find(t => 
-      String(t.tripId) === tripIdStr && t.userId === userId
-    );
+    let trip = trips.find(t => String(t.tripId) === tripIdStr);
 
+    // 【修复步骤3】核心修复：解析tripData时添加错误处理
+    if (!trip && tripData) {
+      try {
+        // 解析前端传递的tripData（处理格式错误）
+        let parsedTripData;
+        try {
+          parsedTripData = JSON.parse(tripData);
+          console.log('[get接口] 解析前端tripData成功:', parsedTripData.tripId || '未知tripId');
+        } catch (parseErr) {
+          // JSON解析失败：返回明确错误（而非默认"行程不存在"）
+          console.error('[get接口] 解析tripData失败:', parseErr.message);
+          return res.json({
+            code: 1,
+            data: null,
+            msg: `行程数据格式错误：${parseErr.message}（请检查行程内容）`
+          });
+        }
+
+        // 校验解析后的tripData完整性
+        if (!parsedTripData.itinerary || !Array.isArray(parsedTripData.itinerary)) {
+          return res.json({
+            code: 1,
+            data: null,
+            msg: '行程数据缺少有效itinerary字段（需为数组）'
+          });
+        }
+
+        // 创建新行程（复用sync-local接口的字段逻辑）
+        const newTrip = {
+          tripId: tripIdStr, // 复用前端tripId
+          userId: userId,
+          title: parsedTripData.title || `行程-${new Date().toLocaleDateString()}`,
+          collectionIds: parsedTripData.collectionIds || [],
+          days: parsedTripData.days || parsedTripData.itinerary.length,
+          budget: parsedTripData.budget || '不限',
+          preference: parsedTripData.preference || '',
+          itinerary: parsedTripData.itinerary.map(day => ({
+            day: day.day || '',
+            date: day.date || new Date().toISOString().split('T')[0],
+            items: day.items || []
+          })),
+          model: 'qwen',
+          modelName: '手动同步行程',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        // 过滤空白天数（避免后端存储无效数据）
+        newTrip.itinerary = newTrip.itinerary.filter(day => 
+          day.items && Array.isArray(day.items) && day.items.length > 0
+        );
+        newTrip.days = newTrip.itinerary.length;
+
+        // 保存到后端（复用appendToJsonArray，确保原子性）
+        await appendToJsonArray('trips.json', newTrip);
+        trip = newTrip; // 更新trip变量，后续正常返回
+        console.log('[get接口] 自动创建前端传递的行程:', tripIdStr);
+      } catch (createErr) {
+        console.error('[get接口] 创建行程失败:', createErr.message);
+        return res.json({
+          code: 1,
+          data: null,
+          msg: `创建行程失败：${createErr.message}`
+        });
+      }
+    }
+
+    // 【修复步骤3】核心修改：兼容行程缺少userId的情况
+    if (trip) {
+      if (!trip.userId || trip.userId !== userId) {
+        // 若行程无userId或userId不匹配，自动关联当前请求的用户ID（首次同步）
+        trip.userId = userId;
+        
+        // 同步更新后端的trips.json（确保后续请求归属正确）
+        const updatedTrips = trips.map(t => 
+          String(t.tripId) === tripIdStr ? trip : t
+        );
+        await writeJsonFile('trips.json', updatedTrips);
+        
+        console.log('✅ 后端自动关联行程到当前用户:', userId);
+      }
+    }
+
+    // 重新校验：行程存在且userId匹配
     if (!trip) {
       return res.json({
         code: 1,
         data: null,
-        msg: '行程不存在（或无权访问）' // 优化提示，区分不存在和无权限
+        msg: '行程不存在'
+      });
+    }
+
+    // 再次确认userId匹配（双重保障）
+    if (trip.userId !== userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程不存在（或无权访问）'
       });
     }
 
@@ -227,6 +318,95 @@ router.get('/get', async (req, res) => {
       code: 1,
       data: null,
       msg: error.message || '获取失败'
+    });
+  }
+});
+
+/**
+ * 同步前端local行程到后端（处理"前端有数据但后端无"场景）
+ * POST /api/trip/sync-local
+ * Body: { userId, tripId, title, itinerary, days, budget, preference, collectionIds }
+ */
+router.post('/sync-local', async (req, res) => {
+  try {
+    const { userId, tripId, title, itinerary, days, budget, preference, collectionIds = [] } = req.body;
+    
+    // 1. 基础参数校验（返回明确的错误msg）
+    if (!userId) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '同步失败：用户ID不能为空'
+      });
+    }
+    if (!title) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '同步失败：行程标题不能为空'
+      });
+    }
+    if (!itinerary || !Array.isArray(itinerary) || itinerary.length === 0) {
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '同步失败：行程数据（itinerary）不能为空且需为数组'
+      });
+    }
+    
+    if (userId.startsWith('guest_')) {
+      await getOrCreateGuestUser(userId);
+    }
+    
+    // 生成唯一tripId（如果前端未传递tripId，则生成新ID；否则复用前端传递的tripId）
+    const finalTripId = tripId || crypto.randomBytes(8).toString('hex');
+    
+    // 【修复步骤4】检查行程是否已存在（避免重复创建）
+    const trips = await readJsonFile('trips.json');
+    const existingTrip = trips.find(t => 
+      String(t.tripId) === String(finalTripId) && t.userId === userId
+    );
+    
+    if (existingTrip) {
+      // 行程已存在且userId匹配，返回业务提示（code=1，但属于正常提示）
+      return res.json({
+        code: 1,
+        data: null,
+        msg: '行程已存在，无需重复同步'
+      });
+    }
+    
+    const trip = {
+      tripId: finalTripId,
+      userId,
+      title: title || `行程-${new Date().toLocaleDateString()}`,
+      collectionIds: collectionIds,
+      days: days || itinerary.length,
+      budget: budget || '不限',
+      preference: preference || '',
+      itinerary: itinerary,
+      model: 'qwen', // 兼容手动行程的模型标识
+      modelName: '手动同步行程',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 保存到后端trips.json
+    await appendToJsonArray('trips.json', trip);
+    
+    // 3. 成功时返回标准格式
+    return res.json({
+      code: 0,
+      data: { tripId: finalTripId, trip },
+      msg: '行程同步成功'
+    });
+  } catch (error) {
+    console.error('同步local行程错误:', error);
+    // 4. 失败时返回标准格式（确保包含msg）
+    return res.json({
+      code: 1,
+      data: null,
+      msg: `同步失败：${error.message || '后端处理异常'}`
     });
   }
 });

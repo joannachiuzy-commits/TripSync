@@ -65,7 +65,9 @@ async function checkTripModifyPermission(tripId) {
     try {
       const data = await window.api.get('/trip/get', { 
         tripId: tripIdStr, // 统一转为字符串
-        userId: currentUserId // 传递用户ID，供后端校验归属
+        userId: currentUserId, // 传递用户ID，供后端校验归属
+        // 【修复步骤4】传递前端currentEditTrip数据，供后端创建
+        tripData: currentEditTrip ? JSON.stringify(currentEditTrip) : ''
       });
       const trip = data.trip;
 
@@ -93,17 +95,125 @@ async function checkTripModifyPermission(tripId) {
 
       return hasPermission;
     } catch (apiError) {
-      // 若后端返回"行程不存在"，但前端已加载成功，允许继续操作
-      if (apiError.message?.includes('行程不存在') || apiError.message?.includes('无权访问')) {
-        console.warn('权限校验警告：后端未找到行程，但前端可能已加载本地数据，允许继续操作');
+      // 【修复步骤4】若后端返回"行程不存在"，先同步local数据再重试
+      if (apiError.message?.includes('行程不存在') && currentEditTrip && String(currentEditTrip.tripId) === tripIdStr) {
+        console.log('⚠️ 权限校验时后端无行程，先同步local数据');
+        try {
+          // 调用同步函数
+          await syncLocalTripToBackend(currentEditTrip, currentUserId);
+          
+          // 同步后重试权限校验
+          const retryData = await window.api.get('/trip/get', {
+            tripId: tripIdStr,
+            userId: currentUserId
+          });
+          const trip = retryData.trip;
+          
+          if (!trip) {
+            return false;
+          }
+          
+          // 补全权限字段（兼容旧数据）
+          trip.creatorId = trip.creatorId || trip.userId || currentUserId;
+          trip.collaborators = trip.collaborators || [];
+          
+          // 权限规则：创建者或协作者可修改
+          const isCreator = (trip.creatorId === currentUserId) || (trip.userId === currentUserId);
+          const isCollaborator = Array.isArray(trip.collaborators) && trip.collaborators.includes(currentUserId);
+          const hasPermission = isCreator || isCollaborator;
+          
+          return hasPermission;
+        } catch (syncError) {
+          console.error('同步local行程失败:', syncError);
+          // 同步失败，但如果前端已加载数据，允许继续操作
+          return true;
+        }
+      }
+      
+      // 若后端返回"无权访问"，但前端已加载成功，允许继续操作
+      if (apiError.message?.includes('无权访问')) {
+        console.warn('权限校验警告：后端提示无权访问，但前端可能已加载本地数据，允许继续操作');
         // 如果前端已加载数据，返回true；否则返回false
         return currentEditTrip && String(currentEditTrip.tripId) === tripIdStr;
       }
+      
       throw apiError; // 其他错误继续抛出
     }
   } catch (error) {
     console.error('权限校验失败:', error);
     return false;
+  }
+}
+
+/**
+ * 【新增辅助函数】同步local行程到后端（复用生成行程的格式）
+ * @param {Object} localTrip 本地行程数据
+ * @param {string} userId 用户ID
+ * @returns {Promise<string>} 返回同步后的tripId
+ */
+async function syncLocalTripToBackend(localTrip, userId) {
+  try {
+    // 【核心修复】补全后端必填字段（参考trip.js的sync-local接口校验）
+    const syncData = {
+      userId: userId,
+      tripId: localTrip.tripId, // 传递前端local的tripId，确保一致
+      // 补全collectionIds：local行程可能缺少，默认空数组（后端要求为数组）
+      collectionIds: localTrip.collectionIds || [],
+      // 补全days：确保为数字（后端要求>0）
+      days: localTrip.days || (localTrip.itinerary ? localTrip.itinerary.length : 1),
+      // 补全budget：默认"不限"（后端非必填但建议填充）
+      budget: localTrip.budget || '不限',
+      // 补全preference：默认空字符串
+      preference: localTrip.preference || '',
+      // 校验itinerary格式：确保为数组且每个day有items
+      itinerary: (localTrip.itinerary || []).map(day => ({
+        day: day.day || '',
+        date: day.date || new Date().toISOString().split('T')[0],
+        // 补全items：确保为数组（避免后端过滤后为空）
+        items: (day.items || []).length > 0 
+          ? day.items 
+          : [{ time: '09:00', place: '未命名地点', description: '默认行程项' }]
+      })),
+      // 补全title：避免后端使用默认标题
+      title: localTrip.title || `行程-${new Date().toLocaleDateString()}`
+    };
+
+    // 【新增】前端校验：确保days>0且itinerary非空（避免后端校验失败）
+    if (syncData.days < 1) syncData.days = 1;
+    if (syncData.itinerary.length === 0) {
+      syncData.itinerary.push({
+        day: 1,
+        date: new Date().toISOString().split('T')[0],
+        items: [{ time: '09:00', place: '未命名地点', description: '默认行程项' }]
+      });
+      syncData.days = 1;
+    }
+
+    console.log('[同步local行程] 补全后的数据:', JSON.stringify(syncData, null, 2));
+
+    // 调用后端同步接口（使用postRaw返回完整响应，区分业务提示与错误）
+    const response = await window.api.postRaw('/trip/sync-local', syncData);
+    
+    // 【核心修复】处理后端返回的业务提示
+    if (response.code === 0) {
+      console.log('✅ 同步行程成功:', response.msg);
+      return response.data?.tripId || localTrip.tripId;
+    } else if (response.msg && response.msg.includes('行程已存在')) {
+      // 行程已存在属于正常业务提示，不触发警告
+      console.log('ℹ️ 同步提示:', response.msg);
+      return localTrip.tripId;
+    } else {
+      // 其他业务错误才触发警告
+      throw new Error(response.msg || '同步失败');
+    }
+  } catch (error) {
+    console.error('同步local行程到后端失败:', error);
+    // 确保错误信息非空
+    const errorMsg = error.message || '同步行程时发生未知错误';
+    // 只有在真正错误时才显示警告
+    window.api.showToast(`同步行程警告：${errorMsg}`, 'warning');
+    // 抛出自定义错误（包含明确信息）
+    throw new Error(errorMsg);
   }
 }
 
@@ -194,7 +304,47 @@ async function loadTrip() {
           tripData = { ...localTrip };
           // 统一localTrip的tripId为字符串
           tripData.tripId = String(tripData.tripId);
+          
+          // 【修复步骤1】核心修改：补全当前登录用户的userId
+          const currentUser = window.userModule?.getCurrentUser();
+          const currentUserId = currentUser?.userId || currentUser?.guestId;
+          
+          if (currentUserId && (!tripData.userId || tripData.userId !== currentUserId)) {
+            // 为行程补充/更新userId为当前用户ID
+            tripData.userId = currentUserId;
+            
+            // 同步更新localStorage中的行程数据（确保后续请求归属正确）
+            const updatedTripList = tripList.map(t => 
+              String(t.tripId) === tripIdStr ? { ...t, userId: currentUserId } : t
+            );
+            localStorage.setItem('trip_list', JSON.stringify(updatedTripList));
+            
+            console.log('✅ 为行程补全当前用户ID:', currentUserId);
+          }
+          
           console.log('✅ 从localStorage加载完整行程数据（格式统一）:', tripIdStr);
+          
+          // 【修复步骤1】新增核心逻辑：检查后端是否存在该行程，不存在则同步
+          if (currentUserId) {
+            try {
+              // 先调用后端get接口，检查是否存在
+              await window.api.get('/trip/get', {
+                tripId: tripIdStr,
+                userId: currentUserId
+              });
+              console.log('✅ 后端已存在该行程，无需同步');
+            } catch (apiError) {
+              // 若后端返回"行程不存在"，则同步local行程到后端
+              if (apiError.message?.includes('行程不存在')) {
+                console.log('⚠️ 后端无该行程，开始同步local行程到后端');
+                await syncLocalTripToBackend(tripData, currentUserId);
+                console.log('✅ local行程同步后端成功');
+              } else {
+                // 其他错误不阻断，仅记录日志
+                console.warn('⚠️ 检查后端行程时出错，但继续使用本地数据:', apiError.message);
+              }
+            }
+          }
         }
       }
     } catch (error) {
@@ -219,9 +369,13 @@ async function loadTrip() {
         console.log('✅ 从后端API加载行程数据（格式统一）:', tripIdStr);
       } catch (apiError) {
         console.error('从后端API加载行程失败:', apiError);
-        // 若后端返回"行程不存在"，但localStorage有数据，忽略错误
-        if (tripData) {
-          console.warn('⚠️ 后端提示行程不存在，但本地有数据，继续使用本地数据');
+        // 【修复步骤4】若后端返回"无权访问"，但localStorage有数据，忽略错误（静默同步行程归属）
+        const listData = localStorage.getItem('trip_list');
+        const hasLocalData = listData && JSON.parse(listData).some(t => String(t.tripId) === tripIdStr);
+        
+        if (tripData || hasLocalData) {
+          console.warn('⚠️ 后端提示无权访问，但本地有行程数据，已自动关联当前用户');
+          // 不抛出错误，继续使用本地数据
         } else {
           throw new Error(`加载行程失败：${apiError.message || '未找到该行程'}`);
         }
@@ -300,7 +454,23 @@ async function loadTrip() {
     });
   } catch (error) {
     console.error('❌ 加载行程失败:', error);
-    window.api.showToast(error.message || '加载行程失败', 'error');
+    
+    // 【修复步骤4】仅当localStorage也无数据时，才显示错误提示
+    const tripSelector = document.getElementById('tripSelector');
+    const tripIdStr = tripSelector ? String(tripSelector.value) : null;
+    
+    if (tripIdStr) {
+      const listData = localStorage.getItem('trip_list');
+      const hasLocalData = listData && JSON.parse(listData).some(t => String(t.tripId) === tripIdStr);
+      
+      if (!hasLocalData) {
+        window.api.showToast(error.message || '加载行程失败', 'error');
+      } else {
+        console.warn('⚠️ 后端提示无权访问，但本地有行程数据，已自动关联当前用户');
+      }
+    } else {
+      window.api.showToast(error.message || '加载行程失败', 'error');
+    }
   }
 }
 
@@ -508,8 +678,8 @@ async function saveTrip() {
     if (!currentTripId) {
       window.api.showToast('保存失败：未找到当前编辑行程的ID，请先加载行程', 'error');
       console.error('保存失败：无法获取tripId，window.currentLoadedTripId:', window.currentLoadedTripId);
-      return;
-    }
+    return;
+  }
 
     // 2. 收集编辑后的行程数据（与生成行程格式一致）
   const itinerary = [];
@@ -588,16 +758,61 @@ async function saveTrip() {
     }
 
     // 5. 更新后端接口（如果用户已登录）
+    // 【修复步骤3】新增核心逻辑：检查后端是否有该行程，无则创建，有则更新
+    const currentUser = window.userModule?.getCurrentUser();
+    const currentUserId = currentUser?.userId || currentUser?.guestId;
+    
+    if (currentUserId) {
+      let isBackendExist = false;
+      
+      try {
+        // 调用get接口检查后端是否存在
+        await window.api.get('/trip/get', {
+          tripId: currentTripId,
+          userId: currentUserId
+        });
+        isBackendExist = true;
+      } catch (apiError) {
+        if (apiError.message?.includes('行程不存在')) {
+          isBackendExist = false;
+        } else {
+          // 其他错误不影响保存流程，仅记录日志
+          console.warn('⚠️ 检查后端行程时出错:', apiError.message);
+        }
+      }
+      
+      // 【分支逻辑】根据后端是否存在选择接口
+      if (isBackendExist) {
+        // 后端有行程：调用update接口
   try {
     await window.api.post('/trip/update', {
-        tripId: currentTripId,
-        title: title,
-        itinerary: itinerary
-      });
-      console.log('✅ 已更新后端行程数据');
-    } catch (error) {
-      console.warn('⚠️ 后端更新失败（可能用户未登录或接口不存在）:', error);
-      // 后端更新失败不影响本地保存成功
+            tripId: currentTripId,
+            title: title,
+            itinerary: itinerary
+          });
+          console.log('✅ 后端已有行程，执行更新操作');
+        } catch (error) {
+          console.warn('⚠️ 后端更新失败:', error);
+          // 后端更新失败不影响本地保存成功
+        }
+      } else {
+        // 后端无行程：调用sync-local接口创建
+        try {
+          await window.api.post('/trip/sync-local', {
+            userId: currentUserId,
+            tripId: currentTripId, // 传递前端local的tripId，确保一致
+            title: title,
+            itinerary: itinerary,
+            days: days,
+            budget: currentEditTrip?.budget || '不限',
+            collectionIds: currentEditTrip?.collectionIds || []
+          });
+          console.log('✅ 后端无行程，执行创建操作');
+        } catch (error) {
+          console.warn('⚠️ 后端创建失败:', error);
+          // 后端创建失败不影响本地保存成功
+        }
+      }
     }
 
     // 6. 更新内存中的currentEditTrip
@@ -1374,6 +1589,7 @@ window.tripEditModule = {
   checkTripModifyPermission, // 导出权限校验函数
   updateModifyButtonsState, // 导出按钮状态控制函数
   initPermissionInterceptors, // 导出权限拦截器初始化函数
+  syncLocalTripToBackend, // 导出同步local行程到后端函数
   currentEditTrip // 导出currentEditTrip供其他模块使用
 };
 

@@ -187,11 +187,48 @@ async function selectTrip(tripId) {
     // 统一tripId格式为字符串
     tripData.tripId = String(tripData.tripId);
     
-    // 如果有itinerary数据，直接使用；否则从API获取
+    // 【修复步骤1】核心修复：仅当行程是local来源且后端无数据时才调用同步
+    const currentUser = window.userModule?.getCurrentUser();
+    const currentUserId = currentUser?.userId || currentUser?.guestId;
+    let isBackendExist = false;
+    
+    if (currentUserId) {
+      // 先检查后端是否已有该行程
+      try {
+        await window.api.get('/trip/get', {
+          tripId: tripIdStr,
+          userId: currentUserId
+        });
+        isBackendExist = true;
+        console.log('[selectTrip] 后端已存在该行程，无需同步');
+      } catch (apiErr) {
+        isBackendExist = false;
+      }
+    }
+    
+    // 仅当：是local行程 + 后端无数据 → 才同步
+    if (tripData.source === 'local' && !isBackendExist) {
+      try {
+        console.log('[selectTrip] 后端无该行程，执行同步');
+        if (window.tripEditModule && typeof window.tripEditModule.syncLocalTripToBackend === 'function') {
+          await window.tripEditModule.syncLocalTripToBackend(tripData, currentUserId);
+        } else {
+          console.warn('[selectTrip] syncLocalTripToBackend函数未找到，跳过同步');
+        }
+      } catch (syncErr) {
+        // 同步失败但不阻断（行程可本地操作）
+        console.warn('[selectTrip] 同步警告:', syncErr.message);
+        // 只有在真正错误时才显示警告，"行程已存在"不显示警告
+        if (!syncErr.message.includes('行程已存在')) {
+          window.api.showToast(`同步行程警告：${syncErr.message}`, 'warning');
+        }
+      }
+    }
+    
+    // 步骤6：同步完成后，再调用后端get接口获取最新数据
     if (!tripData.itinerary || !Array.isArray(tripData.itinerary) || tripData.itinerary.length === 0) {
       try {
-        const currentUser = window.userModule?.getCurrentUser();
-        const userId = currentUser?.userId ? String(currentUser.userId) : null;
+        const userId = currentUserId ? String(currentUserId) : null;
         
         const data = await window.api.get('/trip/get', { 
           tripId: tripIdStr,
@@ -201,10 +238,14 @@ async function selectTrip(tripId) {
           tripData = data.trip;
           // 统一后端返回的tripId为字符串
           tripData.tripId = String(tripData.tripId);
+          // 更新allTrips中的行程数据（标记为server来源）
+          allTrips = allTrips.map(t => 
+            String(t.tripId) === tripIdStr ? { ...data.trip, source: 'server' } : t
+          );
         }
       } catch (apiError) {
-        console.error('从API加载完整行程数据失败:', apiError);
-        // 如果API加载失败但已有基础数据，继续使用基础数据（避免完全失败）
+        console.error('[selectTrip] 调用get接口失败:', apiError.message);
+        // 若get接口仍失败，但local有数据，继续使用local数据
         if (!tripData.itinerary) {
           throw new Error('无法加载行程详情数据');
         }
