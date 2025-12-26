@@ -1087,6 +1087,10 @@ async function handleSmartOptimize() {
     }
 
     // 7. 更新编辑面板的tripId（双重保障）
+    // 修复：显式获取DOM元素并添加存在性校验
+    const editPanel = document.querySelector('.trip-edit-panel');
+    const editContainer = document.getElementById('editTripContainer');
+    
     if (editPanel) {
       editPanel.dataset.currentTripId = String(optimizedTrip.tripId);
     }
@@ -1632,6 +1636,390 @@ function initPermissionInterceptors() {
 }
 
 /**
+ * 从localStorage兜底获取行程数据的辅助函数
+ */
+function getTripFromLocalStorage() {
+  const currentTripId = getCurrentTripId();
+  if (!currentTripId) return null;
+  
+  try {
+    const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
+    if (listData) {
+      const tripList = JSON.parse(listData);
+      const localTrip = tripList.find(t => String(t.tripId) === String(currentTripId));
+      return localTrip ? { ...localTrip } : null;
+    }
+  } catch (error) {
+    console.warn('从localStorage兜底获取行程失败:', error);
+  }
+  return null;
+}
+
+/**
+ * 生成并导出PDF（使用html2pdf.js，更好的中文支持）
+ * 【修复空白PDF问题】添加DOM渲染等待、样式优化、数据兜底、配置增强
+ */
+async function exportTripToPdf() {
+  let tempDiv = null;
+  const exportPdfBtn = document.getElementById('exportPdfBtn');
+  
+  try {
+    // 0. 【修复3】优化依赖校验逻辑（增加更灵活的判断）
+    let html2pdfInstance;
+    try {
+      // 兼容不同版本的html2pdf导出方式
+      if (typeof window.html2pdf === 'function') {
+        html2pdfInstance = window.html2pdf;
+      } else if (window.html2pdf && typeof window.html2pdf.default === 'function') {
+        html2pdfInstance = window.html2pdf.default;
+      } else if (window.html2pdf) {
+        html2pdfInstance = window.html2pdf;
+      } else {
+        throw new Error('html2pdf未定义');
+      }
+      
+      // 验证核心方法
+      if (!html2pdfInstance || !html2pdfInstance.set || !html2pdfInstance.from) {
+        throw new Error('html2pdf核心方法缺失');
+      }
+    } catch (error) {
+      window.api.showToast('PDF导出库加载不完整，请刷新页面重试', 'error');
+      console.error('PDF导出库校验失败:', error, {
+        hasHtml2pdf: !!window.html2pdf,
+        html2pdfType: typeof window.html2pdf,
+        hasSetMethod: !!(window.html2pdf && window.html2pdf.set),
+        hasFromMethod: !!(window.html2pdf && window.html2pdf.from),
+        hasHtml2canvas: !!window.html2canvas,
+        hasJspdf: !!(window.jspdf || window.jsPDF)
+      });
+      return;
+    }
+
+    // 【修复4】添加按钮加载状态，避免重复点击
+    if (exportPdfBtn) {
+      exportPdfBtn.disabled = true;
+      exportPdfBtn.textContent = '导出中...';
+    }
+
+    // 1. 【修复2】获取当前编辑的行程数据（优先读取全局最新数据）
+    // 步骤1：优先读取全局最新数据（tripListManager选中后会更新此值）
+    const globalTripData = window.tripEditModule?.currentEditTrip;
+    // 步骤2：其次读取局部变量，最后从localStorage兜底
+    let tripData = globalTripData || currentEditTrip || getTripFromLocalStorage();
+    
+    // 加强数据校验：若所有数据源都无数据，提示并返回
+    if (!tripData || !tripData.itinerary || !Array.isArray(tripData.itinerary)) {
+      window.api.showToast('未获取到有效行程数据，请重新加载行程', 'error');
+      console.error('PDF导出-无有效行程数据:', { 
+        tripData, 
+        currentTripId: getCurrentTripId(),
+        globalTripData: !!globalTripData,
+        localCurrentEditTrip: !!currentEditTrip
+      });
+      return;
+    }
+    
+    if (tripData.itinerary.length === 0) {
+      window.api.showToast('请先加载行程', 'warning');
+      return;
+    }
+
+    // 2. 从数据源收集行程信息（确保数据清洁）
+    const itinerary = tripData.itinerary;
+    
+    // 【修复3】过滤有效天数（至少1个item），避免空内容
+    const validItinerary = itinerary.filter(day => 
+      day.items && Array.isArray(day.items) && day.items.length > 0
+    );
+
+    // 【修复5】数据校验与日志调试
+    console.log('PDF导出-行程数据:', {
+      tripDataExists: !!tripData,
+      itineraryLength: itinerary.length,
+      validItineraryLength: validItinerary.length
+    });
+    
+    // 计算日期范围（从数据源获取，而非DOM）
+    const dates = itinerary.map(day => day.date).filter(Boolean);
+    let dateRange = '';
+    let startDateStr = '';
+    let endDateStr = '';
+    
+    if (dates.length > 0) {
+      const startDate = new Date(dates[0]);
+      const endDate = new Date(dates[dates.length - 1]);
+      startDateStr = formatDateChinese(dates[0]);
+      endDateStr = formatDateChinese(dates[dates.length - 1]);
+      dateRange = `${startDateStr}至${endDateStr}`;
+    } else {
+      dateRange = '日期未设置';
+    }
+    
+    const days = itinerary.length;
+
+    // 3. 构建正确的标题（确保格式正确）
+    const correctTitle = dateRange !== '日期未设置' ? `${dateRange}行程` : '未命名行程';
+
+    // 4. 构建HTML内容（使用内联样式确保字体和格式正确）
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @page {
+            margin: 2cm;
+            size: A4 portrait;
+          }
+          body {
+            font-family: "Microsoft YaHei", "SimHei", "SimSun", "Arial", sans-serif;
+            font-size: 12pt;
+            line-height: 1.2;
+            color: #333;
+            padding: 0;
+            margin: 0;
+          }
+          .pdf-title {
+            text-align: center;
+            font-size: 16pt;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-family: "SimHei", "Microsoft YaHei", "Arial", sans-serif;
+          }
+          .pdf-duration {
+            text-align: center;
+            font-size: 12pt;
+            margin-bottom: 15px;
+            font-family: "SimSun", "Microsoft YaHei", "Arial", sans-serif;
+          }
+          .pdf-divider {
+            border-top: 1px solid #333;
+            margin: 15px 0;
+          }
+          .day-section {
+            margin-bottom: 20px;
+          }
+          .day-title {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-family: "SimHei", "Microsoft YaHei", "Arial", sans-serif;
+          }
+          .day-item {
+            font-size: 12pt;
+            margin-bottom: 8px;
+            line-height: 1.2;
+            font-family: "SimSun", "Microsoft YaHei", "Arial", sans-serif;
+          }
+          .day-divider {
+            border-top: 0.5px solid #ccc;
+            margin: 15px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="pdf-title">${correctTitle}</div>
+        <div class="pdf-duration">行程时长：${days}天</div>
+        <div class="pdf-divider"></div>
+    `;
+
+    // 5. 【修复3】补充行程数据兜底逻辑（避免空内容）
+    if (validItinerary.length === 0) {
+      // 无有效行程项时的兜底提示
+      htmlContent += `
+        <div class="day-section">
+          <div class="day-title">暂无有效行程项</div>
+          <div class="day-item">请先在行程编辑界面添加行程项目（如时间、地点、描述）</div>
+        </div>
+      `;
+    } else {
+      // 遍历有效天数的行程（从数据源获取，过滤无效字符）
+      validItinerary.forEach((day, dayIndex) => {
+        // 找到原始索引（用于计算日期）
+        const originalIndex = itinerary.findIndex(d => d === day);
+        const dayNum = day.day || (originalIndex >= 0 ? originalIndex + 1 : dayIndex + 1);
+        // 【修复3】修复日期格式化：确保不会返回空值
+        const dayDate = formatDateForPdf(day.date);
+        const dayTitle = `第${dayNum}天 | ${dayDate}`; // 确保有值
+        
+        htmlContent += `<div class="day-section">`;
+        htmlContent += `<div class="day-title">${dayTitle}</div>`; // 标题必显
+        
+        if (day.items && Array.isArray(day.items) && day.items.length > 0) {
+          day.items.forEach((item) => {
+            // 【修复3】修复行程项拼接：确保每个字段有兜底
+            const time = cleanTripContent(item.time || '未设置时间');
+            const place = cleanTripContent(item.place || '未设置地点');
+            const description = cleanTripContent(item.description || '无描述');
+            
+            // 格式化项目内容：时间 | 地点 | 内容（无空字段）
+            const itemText = `${time}  |  ${place}  |  ${description}`;
+            htmlContent += `<div class="day-item">${itemText}</div>`;
+          });
+        }
+        
+        // 添加分隔线（最后一天不加）
+        if (dayIndex < validItinerary.length - 1) {
+          htmlContent += `<div class="day-divider"></div>`;
+        }
+        
+        htmlContent += `</div>`;
+      });
+    }
+
+    htmlContent += `
+      </body>
+      </html>
+    `;
+
+    // 【修复5】HTML内容长度日志（若长度<500，说明内容生成异常）
+    console.log('PDF导出-HTML内容长度:', htmlContent.length);
+    if (htmlContent.length < 500) {
+      console.warn('PDF导出警告：HTML内容过短，可能为空', htmlContent);
+    }
+
+    // 6. 【修复2】创建临时容器并设置内容（调整样式：视觉隐藏但保留布局）
+    tempDiv = document.createElement('div');
+    tempDiv.style.position = 'fixed'; // 固定定位避免滚动影响
+    tempDiv.style.top = '0';
+    tempDiv.style.left = '0';
+    tempDiv.style.width = '210mm'; // A4宽度，确保内容不溢出
+    tempDiv.style.height = 'auto';
+    tempDiv.style.opacity = '0'; // 视觉隐藏
+    tempDiv.style.visibility = 'visible'; // 保持DOM可捕获
+    tempDiv.style.zIndex = '-1'; // 避免遮挡其他元素
+    tempDiv.style.pointerEvents = 'none'; // 禁用交互
+    tempDiv.innerHTML = htmlContent;
+    document.body.appendChild(tempDiv);
+
+    // 【修复1】等待DOM渲染完成（确保HTML内容完全绘制后再触发PDF生成）
+    await new Promise(resolve => {
+      requestAnimationFrame(() => {
+        // 额外兼容：确保样式生效和尺寸计算完成
+        setTimeout(() => {
+          // 强制触发重排，确保offsetWidth/offsetHeight计算正确
+          tempDiv.offsetHeight;
+          resolve();
+        }, 100);
+      });
+    });
+
+    // 获取临时容器的实际尺寸（A4尺寸：210mm × 297mm，在96dpi下约794px × 1123px）
+    const containerWidth = tempDiv.offsetWidth || 794;
+    const containerHeight = tempDiv.offsetHeight || 1123;
+    
+    console.log('PDF导出-临时容器尺寸:', {
+      width: containerWidth,
+      height: containerHeight,
+      offsetWidth: tempDiv.offsetWidth,
+      offsetHeight: tempDiv.offsetHeight
+    });
+
+    // 7. 【修复4】使用html2pdf.js生成PDF（优化配置参数，解决视口外捕获空白）
+    const opt = {
+      margin: [20, 20, 20, 20], // 上下左右各2cm = 20mm
+      filename: `${correctTitle.replace(/[^\w\s-]/g, '_').substring(0, 50)}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { 
+        scale: 2, // 高清捕获
+        useCORS: true,
+        allowTaint: true, // 允许捕获带特殊字符的内容
+        logging: true, // 开启日志便于调试
+        letterRendering: true,
+        backgroundColor: '#ffffff', // 【修复4】关键：设置白色背景（避免透明）
+        scrollY: 0, // 【修复4】关键：从顶部开始捕获
+        scrollX: 0,
+        windowWidth: containerWidth, // 【修复4】关键：使用临时容器宽度
+        windowHeight: containerHeight // 【修复4】关键：使用临时容器高度
+      },
+      jsPDF: { 
+        unit: 'mm', 
+        format: 'a4', 
+        orientation: 'portrait',
+        compress: true,
+        encoding: 'UTF-8' // 显式指定编码，避免中文乱码
+      }
+    };
+
+    // 8. 生成并下载PDF
+    await html2pdfInstance().set(opt).from(tempDiv).save();
+    
+    window.api.showToast('PDF导出成功', 'success');
+  } catch (error) {
+    console.error('导出PDF失败:', error);
+    window.api.showToast('PDF导出失败，请重试', 'error');
+  } finally {
+    // 【修复4】恢复按钮状态
+    if (exportPdfBtn) {
+      exportPdfBtn.disabled = false;
+      exportPdfBtn.textContent = '生成并导出PDF';
+    }
+    
+    // 9. 【修复5】清理临时元素（确保即使出错也能清理）
+    if (tempDiv && tempDiv.parentNode) {
+      try {
+        document.body.removeChild(tempDiv);
+      } catch (cleanupError) {
+        console.warn('清理临时元素失败:', cleanupError);
+      }
+    }
+  }
+}
+
+/**
+ * 格式化日期为PDF显示格式（YYYY/MM/DD）
+ * 【修复3】添加无效日期兜底，避免返回空值
+ */
+function formatDateForPdf(dateString) {
+  try {
+    if (!dateString) return '日期未设置';
+    const date = new Date(dateString);
+    // 校验日期有效性（关键修复：排除Invalid Date）
+    if (isNaN(date.getTime())) {
+      throw new Error('无效日期');
+    }
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}/${month}/${day}`;
+  } catch (error) {
+    // 兜底：返回原始字符串（而非空值）
+    return dateString || '日期未设置';
+  }
+}
+
+/**
+ * 格式化日期为中文格式（YYYY年MM月DD日）
+ * 【修复3】添加无效日期兜底，避免返回空值
+ */
+function formatDateChinese(dateString) {
+  try {
+    if (!dateString) return '日期未设置';
+    const date = new Date(dateString);
+    // 校验日期有效性（关键修复：排除Invalid Date）
+    if (isNaN(date.getTime())) {
+      throw new Error('无效日期');
+    }
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}年${month}月${day}日`;
+  } catch (error) {
+    // 兜底：返回原始字符串（而非空值）
+    return dateString || '日期未设置';
+  }
+}
+
+/**
+ * 过滤行程内容中的无效字符（保留中文、英文、数字、常见标点）
+ */
+function cleanTripContent(content) {
+  if (!content) return '';
+  // 保留中文、英文、数字、常见标点（：，。；、！？），其他符号替换为空
+  return content.replace(/[^\u4e00-\u9fa5a-zA-Z0-9:：,，.。;；、！？\s-]/g, '').trim();
+}
+
+/**
  * 初始化行程编辑模块
  */
 function initTripEdit() {
@@ -1639,6 +2027,18 @@ function initTripEdit() {
   const saveBtn = document.getElementById('saveTripBtn');
   if (saveBtn) {
     saveBtn.addEventListener('click', saveTrip);
+  }
+
+  // 【修复5】PDF导出按钮绑定：添加日志和容错
+  const exportPdfBtn = document.getElementById('exportPdfBtn');
+  if (exportPdfBtn) {
+    // 先移除旧事件（避免重复绑定）
+    exportPdfBtn.removeEventListener('click', exportTripToPdf);
+    exportPdfBtn.addEventListener('click', exportTripToPdf);
+    console.log('✅ PDF导出按钮事件绑定成功');
+  } else {
+    console.error('❌ 未找到PDF导出按钮（exportPdfBtn），请检查HTML中的id是否正确');
+    // 不显示toast，避免干扰用户（仅在控制台提示）
   }
 
   // 加载行程按钮（旧布局，保留兼容性）
@@ -1681,4 +2081,5 @@ window.tripEditModule = {
   syncLocalTripToBackend, // 导出同步local行程到后端函数
   currentEditTrip // 导出currentEditTrip供其他模块使用
 };
+
 
