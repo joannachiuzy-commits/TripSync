@@ -5,6 +5,150 @@
 
 let currentEditTrip = null;
 
+// ==================== 工具函数：整合重复逻辑 ====================
+
+/**
+ * 存储键名常量
+ */
+const STORAGE_KEYS = {
+  TRIP_LIST: 'trip_list'
+};
+
+/**
+ * 获取当前编辑行程的tripId（整合重复逻辑）
+ * @returns {string|null} 当前行程ID，未找到返回null
+ */
+function getCurrentTripId() {
+  // 优先级1：全局变量
+  if (window.currentLoadedTripId) {
+    return String(window.currentLoadedTripId);
+  }
+  
+  // 优先级2：DOM属性
+  const editPanel = document.querySelector('.trip-edit-panel');
+  const editContainer = document.getElementById('editTripContainer');
+  
+  if (editPanel?.dataset.currentTripId) {
+    return editPanel.dataset.currentTripId;
+  }
+  if (editContainer?.dataset.currentTripId) {
+    return editContainer.dataset.currentTripId;
+  }
+  
+  // 优先级3：内存中的行程数据
+  if (currentEditTrip?.tripId) {
+    return String(currentEditTrip.tripId);
+  }
+  
+  return null;
+}
+
+/**
+ * 更新localStorage中的行程数据（整合重复逻辑）
+ * @param {string} tripId 行程ID
+ * @param {Object} tripData 行程数据（至少包含tripId, title, days, savedAt/updatedAt）
+ */
+function updateTripInLocalStorage(tripId, tripData) {
+  try {
+    let tripList = [];
+    const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
+    if (listData) {
+      tripList = JSON.parse(listData);
+    }
+    
+    const existingIndex = tripList.findIndex(t => String(t.tripId) === String(tripId));
+    
+    const tripListItem = {
+      tripId: tripData.tripId || tripId,
+      title: tripData.title || '未命名行程',
+      days: tripData.days || 0,
+      savedAt: tripData.savedAt || tripData.updatedAt || new Date().toISOString()
+    };
+    
+    if (existingIndex >= 0) {
+      tripList[existingIndex] = tripListItem;
+    } else {
+      tripList.push(tripListItem);
+    }
+    
+    localStorage.setItem(STORAGE_KEYS.TRIP_LIST, JSON.stringify(tripList));
+  } catch (error) {
+    console.warn('更新localStorage失败:', error);
+  }
+}
+
+/**
+ * 过滤空白天数（整合重复逻辑）
+ * @param {Array} itinerary 行程数据
+ * @returns {Array} 过滤后的行程数据
+ */
+function filterEmptyDays(itinerary) {
+  if (!itinerary || !Array.isArray(itinerary)) {
+    return [];
+  }
+  return itinerary.filter(day => {
+    return day.items && Array.isArray(day.items) && day.items.length > 0;
+  });
+}
+
+/**
+ * 更新编辑面板的tripId（整合重复逻辑）
+ * @param {string} tripId 行程ID
+ */
+function updateEditPanelTripId(tripId) {
+  const editPanel = document.querySelector('.trip-edit-panel');
+  const editContainer = document.getElementById('editTripContainer');
+  if (editPanel) {
+    editPanel.dataset.currentTripId = String(tripId);
+  }
+  if (editContainer) {
+    editContainer.dataset.currentTripId = String(tripId);
+  }
+}
+
+/**
+ * 应用优化后的行程数据（整合AI优化后的重复处理逻辑）
+ * @param {Object} optimizedTrip 优化后的行程数据
+ * @param {string} currentTripId 当前行程ID
+ * @param {Object} response API响应（包含modelName等信息）
+ */
+function applyOptimizedTrip(optimizedTrip, currentTripId, response) {
+  // 1. 过滤空天数
+  if (optimizedTrip.itinerary && Array.isArray(optimizedTrip.itinerary)) {
+    optimizedTrip.itinerary = filterEmptyDays(optimizedTrip.itinerary);
+    optimizedTrip.days = optimizedTrip.itinerary.length;
+  }
+  
+  // 2. 更新内存中的行程数据
+  currentEditTrip = optimizedTrip;
+  if (window.tripEditModule) {
+    window.tripEditModule.currentEditTrip = optimizedTrip;
+  }
+  
+  // 3. 更新编辑面板的tripId
+  updateEditPanelTripId(optimizedTrip.tripId);
+  
+  // 4. 更新行程标题
+  const titleEl = document.getElementById('editTripTitle');
+  if (titleEl) {
+    titleEl.textContent = optimizedTrip.title || '未命名行程';
+    if (window.tripListManager && typeof window.tripListManager.initEditTitle === 'function') {
+      window.tripListManager.initEditTitle();
+    }
+  }
+  
+  // 5. 刷新编辑区
+  displayEditItinerary(optimizedTrip.itinerary, optimizedTrip);
+  
+  // 6. 更新localStorage
+  updateTripInLocalStorage(currentTripId, optimizedTrip);
+  
+  // 7. 刷新行程列表
+  if (window.tripListManager && window.tripListManager.loadAllTrips) {
+    window.tripListManager.loadAllTrips();
+  }
+}
+
 /**
  * 获取当前登录用户ID（修复版本）
  * @returns {string|null} 用户ID，未登录返回null
@@ -189,29 +333,27 @@ async function syncLocalTripToBackend(localTrip, userId) {
       syncData.days = 1;
     }
 
-    console.log('[同步local行程] 补全后的数据:', JSON.stringify(syncData, null, 2));
-
     // 调用后端同步接口（使用postRaw返回完整响应，区分业务提示与错误）
     const response = await window.api.postRaw('/trip/sync-local', syncData);
     
-    // 【核心修复】处理后端返回的业务提示
+    // 【简化】仅打印成功提示
     if (response.code === 0) {
-      console.log('✅ 同步行程成功:', response.msg);
+      console.log(`[同步行程] 行程 ${localTrip.tripId} 同步成功`);
       return response.data?.tripId || localTrip.tripId;
     } else if (response.msg && response.msg.includes('行程已存在')) {
       // 行程已存在属于正常业务提示，不触发警告
-      console.log('ℹ️ 同步提示:', response.msg);
+      console.log(`[同步行程] 行程 ${localTrip.tripId} 已存在`);
       return localTrip.tripId;
     } else {
       // 其他业务错误才触发警告
       throw new Error(response.msg || '同步失败');
     }
   } catch (error) {
-    console.error('同步local行程到后端失败:', error);
+    // 【保留】错误日志
+    console.error(`[同步行程] 失败:`, error);
     // 确保错误信息非空
-    const errorMsg = error.message || '同步行程时发生未知错误';
-    // 只有在真正错误时才显示警告
-    window.api.showToast(`同步行程警告：${errorMsg}`, 'warning');
+    const errorMsg = error.message || '未知错误';
+    window.api.showToast(`同步警告：${errorMsg}`, 'warning');
     // 抛出自定义错误（包含明确信息）
     throw new Error(errorMsg);
   }
@@ -228,7 +370,7 @@ async function loadTripList() {
   
   // 从localStorage读取已保存的行程
   try {
-    const listData = localStorage.getItem('trip_list');
+    const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
     if (listData) {
       const localTrips = JSON.parse(listData);
       localTrips.forEach(trip => {
@@ -293,7 +435,7 @@ async function loadTrip() {
     
     // 步骤1：优先从localStorage的trip_list加载完整数据
     try {
-      const listData = localStorage.getItem('trip_list');
+      const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
       if (listData) {
         const tripList = JSON.parse(listData);
         // 用字符串匹配查找localStorage中的行程
@@ -317,7 +459,7 @@ async function loadTrip() {
             const updatedTripList = tripList.map(t => 
               String(t.tripId) === tripIdStr ? { ...t, userId: currentUserId } : t
             );
-            localStorage.setItem('trip_list', JSON.stringify(updatedTripList));
+            localStorage.setItem(STORAGE_KEYS.TRIP_LIST, JSON.stringify(updatedTripList));
             
             console.log('✅ 为行程补全当前用户ID:', currentUserId);
           }
@@ -370,7 +512,7 @@ async function loadTrip() {
       } catch (apiError) {
         console.error('从后端API加载行程失败:', apiError);
         // 【修复步骤4】若后端返回"无权访问"，但localStorage有数据，忽略错误（静默同步行程归属）
-        const listData = localStorage.getItem('trip_list');
+        const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
         const hasLocalData = listData && JSON.parse(listData).some(t => String(t.tripId) === tripIdStr);
         
         if (tripData || hasLocalData) {
@@ -420,10 +562,7 @@ async function loadTrip() {
     
     // 步骤6：过滤空天数（移除无项目的天数）
     if (currentEditTrip.itinerary && Array.isArray(currentEditTrip.itinerary)) {
-      currentEditTrip.itinerary = currentEditTrip.itinerary.filter(day => {
-        return day.items && Array.isArray(day.items) && day.items.length > 0;
-      });
-      // 更新days字段为过滤后的天数
+      currentEditTrip.itinerary = filterEmptyDays(currentEditTrip.itinerary);
       currentEditTrip.days = currentEditTrip.itinerary.length;
     }
     
@@ -433,12 +572,7 @@ async function loadTrip() {
     
     // 步骤8：【修复】更新全局变量和DOM属性（均为字符串格式）
     window.currentLoadedTripId = tripIdStr;
-    
-    // 存储当前编辑行程的tripId到编辑面板（用于保存时获取）
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
-    if (editPanel) editPanel.dataset.currentTripId = tripIdStr;
-    if (editContainer) editContainer.dataset.currentTripId = tripIdStr;
+    updateEditPanelTripId(tripIdStr);
     
     // 步骤9：渲染行程
     displayEditItinerary(currentEditTrip.itinerary, currentEditTrip);
@@ -460,7 +594,7 @@ async function loadTrip() {
     const tripIdStr = tripSelector ? String(tripSelector.value) : null;
     
     if (tripIdStr) {
-      const listData = localStorage.getItem('trip_list');
+      const listData = localStorage.getItem(STORAGE_KEYS.TRIP_LIST);
       const hasLocalData = listData && JSON.parse(listData).some(t => String(t.tripId) === tripIdStr);
       
       if (!hasLocalData) {
@@ -516,10 +650,7 @@ function displayEditItinerary(itinerary, tripData = null) {
   }
 
   // 过滤空白天数：仅保留包含至少1个项目的天数
-  const validDays = itinerary.filter(day => {
-    // 检查是否有items数组且至少包含1个项目
-    return day.items && Array.isArray(day.items) && day.items.length > 0;
-  });
+  const validDays = filterEmptyDays(itinerary);
   
   if (validDays.length === 0) {
     container.innerHTML = '<p class="empty-tip">暂无行程数据</p>';
@@ -528,14 +659,7 @@ function displayEditItinerary(itinerary, tripData = null) {
   
   // 如果提供了tripData，存储tripId到编辑面板（双重保障）
   if (tripData && tripData.tripId) {
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
-    if (editPanel) {
-      editPanel.dataset.currentTripId = String(tripData.tripId);
-    }
-    if (editContainer) {
-      editContainer.dataset.currentTripId = String(tripData.tripId);
-    }
+    updateEditPanelTripId(tripData.tripId);
   }
 
   // 使用过滤后的有效天数进行渲染
@@ -573,24 +697,7 @@ async function addTripItem(dayIndex) {
   }
 
   // 【权限校验】检查是否有权限修改该行程
-  // 【修复】优先使用全局变量（加载成功后设置的行程ID）
-  let currentTripId = null;
-  
-  if (window.currentLoadedTripId) {
-    currentTripId = String(window.currentLoadedTripId);
-  } else {
-    // 备用方案：从DOM属性获取
-    const editPanel = document.querySelector('.trip-edit-panel');
-    const editContainer = document.getElementById('editTripContainer');
-    
-    if (editPanel && editPanel.dataset.currentTripId) {
-      currentTripId = editPanel.dataset.currentTripId;
-    } else if (editContainer && editContainer.dataset.currentTripId) {
-      currentTripId = editContainer.dataset.currentTripId;
-    } else if (currentEditTrip && currentEditTrip.tripId) {
-      currentTripId = String(currentEditTrip.tripId);
-    }
-  }
+  const currentTripId = getCurrentTripId();
 
   if (currentTripId) {
     const hasPermission = await checkTripModifyPermission(currentTripId);
@@ -655,25 +762,8 @@ function updateItemIndexes(dayIndex) {
  */
 async function saveTrip() {
   try {
-    // 1. 获取当前编辑行程的tripId（优先使用全局变量，其次从DOM属性获取，最后从currentEditTrip）
-    let currentTripId = null;
-    
-    // 【修复】优先使用全局变量（加载成功后设置的行程ID）
-    if (window.currentLoadedTripId) {
-      currentTripId = String(window.currentLoadedTripId);
-    } else {
-      // 备用方案：从DOM属性获取
-      const editPanel = document.querySelector('.trip-edit-panel');
-      const editContainer = document.getElementById('editTripContainer');
-      
-      if (editPanel && editPanel.dataset.currentTripId) {
-        currentTripId = editPanel.dataset.currentTripId;
-      } else if (editContainer && editContainer.dataset.currentTripId) {
-        currentTripId = editContainer.dataset.currentTripId;
-      } else if (currentEditTrip && currentEditTrip.tripId) {
-        currentTripId = String(currentEditTrip.tripId);
-      }
-    }
+    // 1. 获取当前编辑行程的tripId
+    const currentTripId = getCurrentTripId();
     
     if (!currentTripId) {
       window.api.showToast('保存失败：未找到当前编辑行程的ID，请先加载行程', 'error');
@@ -722,40 +812,13 @@ async function saveTrip() {
     };
 
     // 4. 更新本地存储（localStorage中的trip_list）
-    try {
-      let tripList = [];
-      const listData = localStorage.getItem('trip_list');
-      if (listData) {
-        tripList = JSON.parse(listData);
-      }
-      
-      // 查找是否已存在（根据tripId，使用字符串比较）
-      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
-      
-      const tripListItem = {
-        tripId: currentTripId,
-        title: title,
-        days: days,
-        savedAt: updatedTripData.updatedAt || new Date().toISOString()
-      };
-      
-      if (existingIndex >= 0) {
-        // 更新现有项
-        tripList[existingIndex] = tripListItem;
-        console.log('✅ 已更新localStorage中的行程列表项');
-      } else {
-        // 如果不存在，添加新项（理论上不应该发生，但为了安全）
-        tripList.push(tripListItem);
-        console.warn('⚠️ 行程列表中未找到该行程，已添加为新项');
-      }
-      
-      // 保存回localStorage
-      localStorage.setItem('trip_list', JSON.stringify(tripList));
-      console.log('✅ 已更新localStorage中的trip_list');
-    } catch (error) {
-      console.error('更新localStorage失败:', error);
-      // 不阻断后续操作，继续尝试更新后端
-    }
+    updateTripInLocalStorage(currentTripId, {
+      tripId: currentTripId,
+      title: title,
+      days: days,
+      savedAt: updatedTripData.updatedAt || new Date().toISOString()
+    });
+    console.log('✅ 已更新localStorage中的trip_list');
 
     // 5. 更新后端接口（如果用户已登录）
     // 【修复步骤3】新增核心逻辑：检查后端是否有该行程，无则创建，有则更新
@@ -923,24 +986,8 @@ async function handleSmartOptimize() {
     const selectedCheckboxes = document.querySelectorAll('.favorite-checkbox:checked');
     const collectionIds = Array.from(selectedCheckboxes).map(checkbox => checkbox.value);
 
-    // 2. 基础校验（优先使用全局变量）
-    let currentTripId = null;
-    
-    if (window.currentLoadedTripId) {
-      currentTripId = String(window.currentLoadedTripId);
-    } else {
-      // 备用方案：从DOM属性获取
-      const editPanel = document.querySelector('.trip-edit-panel');
-      const editContainer = document.getElementById('editTripContainer');
-      
-      if (editPanel && editPanel.dataset.currentTripId) {
-        currentTripId = editPanel.dataset.currentTripId;
-      } else if (editContainer && editContainer.dataset.currentTripId) {
-        currentTripId = editContainer.dataset.currentTripId;
-      } else if (currentEditTrip && currentEditTrip.tripId) {
-        currentTripId = String(currentEditTrip.tripId);
-      }
-    }
+    // 2. 基础校验
+    const currentTripId = getCurrentTripId();
 
     if (!currentTripId) {
       window.api.showToast('请先加载行程', 'warning');
@@ -1123,24 +1170,8 @@ async function handleFavoriteOptimize() {
   }
 
   try {
-    // 获取当前编辑行程的tripId（优先使用全局变量）
-    let currentTripId = null;
-    
-    if (window.currentLoadedTripId) {
-      currentTripId = String(window.currentLoadedTripId);
-    } else {
-      // 备用方案：从DOM属性获取
-      const editPanel = document.querySelector('.trip-edit-panel');
-      const editContainer = document.getElementById('editTripContainer');
-      
-      if (editPanel && editPanel.dataset.currentTripId) {
-        currentTripId = editPanel.dataset.currentTripId;
-      } else if (editContainer && editContainer.dataset.currentTripId) {
-        currentTripId = editContainer.dataset.currentTripId;
-      } else if (currentEditTrip && currentEditTrip.tripId) {
-        currentTripId = String(currentEditTrip.tripId);
-      }
-    }
+    // 获取当前编辑行程的tripId
+    const currentTripId = getCurrentTripId();
 
     if (!currentTripId) {
       window.api.showToast('请先加载行程', 'error');
@@ -1197,76 +1228,10 @@ async function handleFavoriteOptimize() {
 
     let optimizedTrip = response.trip;
 
-    // 5. 优化后过滤空天数（移除无项目的天数）
-    if (optimizedTrip.itinerary && Array.isArray(optimizedTrip.itinerary)) {
-      optimizedTrip.itinerary = optimizedTrip.itinerary.filter(day => {
-        return day.items && Array.isArray(day.items) && day.items.length > 0;
-      });
-      // 更新days字段为过滤后的天数
-      optimizedTrip.days = optimizedTrip.itinerary.length;
-    }
+    // 5. 应用优化后的行程数据
+    applyOptimizedTrip(optimizedTrip, currentTripId, response);
 
-    // 6. 更新当前编辑的行程数据
-    currentEditTrip = optimizedTrip;
-    if (window.tripEditModule) {
-      window.tripEditModule.currentEditTrip = optimizedTrip;
-    }
-
-    // 7. 更新编辑面板的tripId（双重保障）
-    if (editPanel) {
-      editPanel.dataset.currentTripId = String(optimizedTrip.tripId);
-    }
-    if (editContainer) {
-      editContainer.dataset.currentTripId = String(optimizedTrip.tripId);
-    }
-
-    // 8. 更新行程标题
-    const titleEl = document.getElementById('editTripTitle');
-    if (titleEl) {
-      titleEl.textContent = optimizedTrip.title || '未命名行程';
-      // 重新初始化标题编辑功能（如果函数存在）
-      if (window.tripListManager && typeof window.tripListManager.initEditTitle === 'function') {
-        window.tripListManager.initEditTitle();
-      }
-    }
-
-    // 9. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
-    displayEditItinerary(optimizedTrip.itinerary, optimizedTrip);
-
-    // 10. 更新本地存储（同步到trip_list）
-    try {
-      let tripList = [];
-      const listData = localStorage.getItem('trip_list');
-      if (listData) {
-        tripList = JSON.parse(listData);
-      }
-      
-      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
-      
-      const tripListItem = {
-        tripId: optimizedTrip.tripId,
-        title: optimizedTrip.title || '未命名行程',
-        days: optimizedTrip.days || optimizedTrip.itinerary.length,
-        savedAt: optimizedTrip.updatedAt || new Date().toISOString()
-      };
-      
-      if (existingIndex >= 0) {
-        tripList[existingIndex] = tripListItem;
-      } else {
-        tripList.push(tripListItem);
-      }
-      
-      localStorage.setItem('trip_list', JSON.stringify(tripList));
-    } catch (error) {
-      console.warn('更新localStorage失败:', error);
-    }
-
-    // 11. 刷新行程列表（如果存在）
-    if (window.tripListManager && window.tripListManager.loadAllTrips) {
-      window.tripListManager.loadAllTrips();
-    }
-
-    // 12. 显示成功提示
+    // 6. 显示成功提示
     window.api.showToast(`基于攻略优化完成（使用${response.modelName || '通义千问'}），可保存修改`, 'success');
 
   } catch (error) {
@@ -1300,24 +1265,8 @@ async function handleAgentModify() {
   }
 
   try {
-    // 1. 获取当前编辑行程的tripId（优先使用全局变量）
-    let currentTripId = null;
-    
-    if (window.currentLoadedTripId) {
-      currentTripId = String(window.currentLoadedTripId);
-    } else {
-      // 备用方案：从DOM属性获取
-      const editPanel = document.querySelector('.trip-edit-panel');
-      const editContainer = document.getElementById('editTripContainer');
-      
-      if (editPanel && editPanel.dataset.currentTripId) {
-        currentTripId = editPanel.dataset.currentTripId;
-      } else if (editContainer && editContainer.dataset.currentTripId) {
-        currentTripId = editContainer.dataset.currentTripId;
-      } else if (currentEditTrip && currentEditTrip.tripId) {
-        currentTripId = String(currentEditTrip.tripId);
-      }
-    }
+    // 1. 获取当前编辑行程的tripId
+    const currentTripId = getCurrentTripId();
     
     if (!currentTripId) {
       window.api.showToast('请先加载行程', 'error');
@@ -1364,74 +1313,8 @@ async function handleAgentModify() {
 
     let modifiedTrip = response.trip;
 
-    // 5. 智能修改后过滤空天数（移除无项目的天数）
-    if (modifiedTrip.itinerary && Array.isArray(modifiedTrip.itinerary)) {
-      modifiedTrip.itinerary = modifiedTrip.itinerary.filter(day => {
-        return day.items && Array.isArray(day.items) && day.items.length > 0;
-      });
-      // 更新days字段为过滤后的天数
-      modifiedTrip.days = modifiedTrip.itinerary.length;
-    }
-
-    // 6. 更新当前编辑的行程数据
-    currentEditTrip = modifiedTrip;
-    if (window.tripEditModule) {
-      window.tripEditModule.currentEditTrip = modifiedTrip;
-    }
-
-    // 7. 更新编辑面板的tripId（双重保障）
-    if (editPanel) {
-      editPanel.dataset.currentTripId = String(modifiedTrip.tripId);
-    }
-    if (editContainer) {
-      editContainer.dataset.currentTripId = String(modifiedTrip.tripId);
-    }
-
-    // 8. 更新行程标题
-    const titleEl = document.getElementById('editTripTitle');
-    if (titleEl) {
-      titleEl.textContent = modifiedTrip.title || '未命名行程';
-      // 重新初始化标题编辑功能（如果函数存在）
-      if (window.tripListManager && typeof window.tripListManager.initEditTitle === 'function') {
-        window.tripListManager.initEditTitle();
-      }
-    }
-
-    // 9. 复用displayEditItinerary函数刷新编辑区（会自动过滤空天数）
-    displayEditItinerary(modifiedTrip.itinerary, modifiedTrip);
-
-    // 10. 更新本地存储（同步到trip_list）
-    try {
-      let tripList = [];
-      const listData = localStorage.getItem('trip_list');
-      if (listData) {
-        tripList = JSON.parse(listData);
-      }
-      
-      const existingIndex = tripList.findIndex(t => String(t.tripId) === String(currentTripId));
-      
-      const tripListItem = {
-        tripId: modifiedTrip.tripId,
-        title: modifiedTrip.title || '未命名行程',
-        days: modifiedTrip.days || modifiedTrip.itinerary.length,
-        savedAt: modifiedTrip.updatedAt || new Date().toISOString()
-      };
-      
-      if (existingIndex >= 0) {
-        tripList[existingIndex] = tripListItem;
-      } else {
-        tripList.push(tripListItem);
-      }
-      
-      localStorage.setItem('trip_list', JSON.stringify(tripList));
-    } catch (error) {
-      console.warn('更新localStorage失败:', error);
-    }
-
-    // 11. 刷新行程列表（如果存在）
-    if (window.tripListManager && window.tripListManager.loadAllTrips) {
-      window.tripListManager.loadAllTrips();
-    }
+    // 5. 应用优化后的行程数据
+    applyOptimizedTrip(modifiedTrip, currentTripId, response);
 
     // 12. 清空输入框
     promptInput.value = '';

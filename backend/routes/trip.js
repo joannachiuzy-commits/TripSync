@@ -368,7 +368,8 @@ router.post('/sync-local', async (req, res) => {
     );
     
     if (existingTrip) {
-      // 行程已存在且userId匹配，返回业务提示（code=1，但属于正常提示）
+      // 【简化】仅打印一次提示
+      console.log(`[trip/sync-local] 行程 ${finalTripId} 已存在，无需同步`);
       return res.json({
         code: 1,
         data: null,
@@ -394,6 +395,9 @@ router.post('/sync-local', async (req, res) => {
     // 保存到后端trips.json
     await appendToJsonArray('trips.json', trip);
     
+    // 【简化】仅打印成功提示
+    console.log(`[trip/sync-local] 成功创建行程 ${finalTripId}`);
+    
     // 3. 成功时返回标准格式
     return res.json({
       code: 0,
@@ -401,7 +405,8 @@ router.post('/sync-local', async (req, res) => {
       msg: '行程同步成功'
     });
   } catch (error) {
-    console.error('同步local行程错误:', error);
+    // 【保留】错误日志
+    console.error(`[trip/sync-local] 同步失败:`, error);
     // 4. 失败时返回标准格式（确保包含msg）
     return res.json({
       code: 1,

@@ -4,7 +4,22 @@
  */
 
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
+
+// 日志级别控制（可选：DEBUG/PROD）
+const LOG_LEVEL = process.env.LOG_LEVEL || 'PROD';
+
+// 日志辅助函数
+function logInfo(msg) {
+  if (LOG_LEVEL === 'DEBUG') console.log(msg);
+}
+function logWarn(msg) {
+  console.warn(msg); // 警告始终打印
+}
+function logError(msg) {
+  console.error(msg); // 错误始终打印
+}
 
 // 文件锁映射（内存锁，用于避免并发写入）
 const fileLocks = new Map();
@@ -37,36 +52,33 @@ function releaseLock(filePath) {
  */
 async function readJsonFile(filePath) {
   const fullPath = path.join(__dirname, '../data', filePath);
-  // 新增：打印实际读取路径（便于调试）
-  console.log(`[fileUtil] 读取文件路径: ${fullPath}`);
   
   try {
     const data = await fs.readFile(fullPath, 'utf-8');
     const parsedData = JSON.parse(data);
-    // 新增：打印读取到的数据长度（确认是否为空）
-    const dataLength = Array.isArray(parsedData) ? parsedData.length : Object.keys(parsedData).length;
-    console.log(`[fileUtil] 读取${filePath}成功，数据长度: ${dataLength}`);
+    // 【简化】仅在文件数据为空时打印（去掉每次读取的长度日志）
+    if (!parsedData || (Array.isArray(parsedData) && parsedData.length === 0)) {
+      logInfo(`[fileUtil] ${filePath} 数据为空，初始化默认值`);
+    }
     return parsedData;
   } catch (error) {
+    // 【保留】错误日志（含路径，方便定位）
     if (error.code === 'ENOENT') {
-      // 文件不存在：打印日志并返回默认值
       const isArrayType = /s\.json$/.test(filePath);
-      console.warn(`[fileUtil] ${filePath}不存在，返回默认${isArrayType ? '数组' : '对象'}`);
+      logWarn(`[fileUtil] ${filePath} 不存在，返回默认值`);
       return isArrayType ? [] : {};
     }
-    // 新增：捕获JSON解析错误（避免因格式错误导致读取失败）
     if (error instanceof SyntaxError) {
-      console.error(`[fileUtil] ${filePath} JSON格式错误: ${error.message}`);
+      logError(`[fileUtil] ${filePath} JSON格式错误: ${error.message}`);
       // 修复：格式错误时备份原文件并返回空数据（避免阻断流程）
       try {
         const backupPath = `${fullPath}.backup.${Date.now()}`;
-        // 使用同步copyFileSync（因为这是在错误处理中，简单复制即可）
         if (fsSync.existsSync(fullPath)) {
           fsSync.copyFileSync(fullPath, backupPath);
-          console.warn(`[fileUtil] 已备份错误文件到${backupPath}，返回空数据`);
+          logWarn(`[fileUtil] 已备份错误文件到${backupPath}`);
         }
       } catch (backupErr) {
-        console.error(`[fileUtil] 备份文件失败: ${backupErr.message}`);
+        logError(`[fileUtil] 备份文件失败: ${backupErr.message}`);
       }
       const isArrayType = /s\.json$/.test(filePath);
       return isArrayType ? [] : {};
@@ -113,34 +125,32 @@ async function writeJsonFile(filePath, data) {
  */
 async function appendToJsonArray(filePath, item) {
   const fullPath = path.join(__dirname, '../data', filePath);
-  console.log(`[fileUtil] 追加数据到${filePath}，路径: ${fullPath}`);
   
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await acquireLock(filePath);
   
   try {
-    let data;
+    let data = [];
     try {
       const content = await fs.readFile(fullPath, 'utf-8');
       data = JSON.parse(content);
-      console.log(`[fileUtil] 追加前${filePath}数据长度: ${data.length}`);
     } catch (readErr) {
+      // 【简化】读取失败时仅打印一次警告
       if (readErr.code === 'ENOENT' || readErr instanceof SyntaxError) {
-        // 文件不存在或格式错误：初始化空数组
         data = [];
-        console.warn(`[fileUtil] ${filePath}不存在或格式错误，初始化空数组`);
+        logWarn(`[fileUtil] ${filePath} 读取失败，初始化空数组`);
       } else {
         throw readErr;
       }
     }
     
     data.push(item);
-    console.log(`[fileUtil] 追加后${filePath}数据长度: ${data.length}`);
     
+    // 【保留】仅打印"追加成功"的关键日志（去掉长度对比）
     const tempPath = fullPath + '.tmp';
     await fs.writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
     await fs.rename(tempPath, fullPath);
-    console.log(`[fileUtil] 追加数据到${filePath}成功`);
+    console.log(`[fileUtil] 成功追加数据到 ${filePath}`);
   } finally {
     releaseLock(filePath);
   }
