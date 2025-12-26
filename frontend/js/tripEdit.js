@@ -578,6 +578,12 @@ async function loadTrip() {
     displayEditItinerary(currentEditTrip.itinerary, currentEditTrip);
     document.getElementById('editTripContainer').style.display = 'block';
     
+    // 重新初始化拖拽功能（因为DOM被重新渲染）
+    if (typeof initDragAndDrop === 'function') {
+      // 拖拽功能已在initTripEdit中初始化，使用事件委托，无需重新初始化
+      // 但需要确保事件监听器已绑定（通常事件委托只需要初始化一次）
+    }
+    
     console.log('✅ 行程加载成功（格式统一）:', {
       tripId: tripIdStr,
       title: currentEditTrip.title,
@@ -671,7 +677,7 @@ function displayEditItinerary(itinerary, tripData = null) {
       </div>
       <div class="day-items">
         ${day.items && day.items.length > 0 ? day.items.map((item, itemIndex) => `
-          <div class="editable-item" data-day-index="${dayIndex}" data-item-index="${itemIndex}">
+          <div class="editable-item trip-item" draggable="true" data-day-index="${dayIndex}" data-item-index="${itemIndex}">
             <input type="time" value="${item.time || ''}" class="item-time" style="width: 100px;">
             <input type="text" value="${item.place || ''}" placeholder="地点" class="item-place">
             <textarea placeholder="描述" class="item-description">${item.description || ''}</textarea>
@@ -712,7 +718,8 @@ async function addTripItem(dayIndex) {
 
   const itemIndex = daySection.querySelectorAll('.editable-item').length;
   const newItem = document.createElement('div');
-  newItem.className = 'editable-item';
+  newItem.className = 'editable-item trip-item';
+  newItem.setAttribute('draggable', 'true');
   newItem.setAttribute('data-day-index', dayIndex);
   newItem.setAttribute('data-item-index', itemIndex);
   newItem.innerHTML = `
@@ -1343,11 +1350,173 @@ async function handleAgentModify() {
 }
 
 /**
+ * 存储被拖拽的行程项目
+ */
+let draggedItem = null;
+
+/**
+ * 辅助函数：找到拖拽位置对应的目标元素
+ * @param {HTMLElement} container 容器元素
+ * @param {number} y 鼠标Y坐标
+ * @returns {HTMLElement|null} 目标元素
+ */
+function getDragAfterElement(container, y) {
+  const draggableElements = [...container.querySelectorAll('.trip-item:not(.dragging)')];
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset: offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+/**
+ * 辅助函数：同步拖拽后的行程项目顺序到本地数据
+ * @param {HTMLElement} dayContainer 当天的行程容器
+ */
+function syncTripItemOrder(dayContainer) {
+  try {
+    // 获取当前天的索引（从DOM中获取）
+    const daySection = dayContainer.closest('.day-section');
+    if (!daySection) return;
+    
+    const dayIndex = Number(daySection.dataset.dayIndex);
+    if (isNaN(dayIndex)) return;
+    
+    // 获取当前行程ID
+    const currentTripId = getCurrentTripId();
+    if (!currentTripId) {
+      console.warn('同步拖拽顺序失败：未找到当前行程ID');
+      return;
+    }
+    
+    // 更新当天的行程项目顺序（与DOM一致）
+    const items = [...dayContainer.querySelectorAll('.trip-item')].map(item => ({
+      time: item.querySelector('.item-time')?.value || '',
+      place: item.querySelector('.item-place')?.value || '',
+      description: item.querySelector('.item-description')?.value || ''
+    }));
+    
+    // 优先更新currentEditTrip（内存中的完整数据）
+    if (currentEditTrip && String(currentEditTrip.tripId) === String(currentTripId)) {
+      if (currentEditTrip.itinerary && currentEditTrip.itinerary[dayIndex]) {
+        currentEditTrip.itinerary[dayIndex].items = items;
+        console.log('✅ 已同步拖拽顺序到currentEditTrip');
+      }
+    }
+    
+    // 注意：localStorage中的trip_list通常只包含基本信息（tripId, title, days, savedAt）
+    // 不包含完整的itinerary数据，所以不需要更新localStorage
+    // 完整的行程数据会在用户点击"保存修改"按钮时统一保存
+    
+  } catch (error) {
+    console.error('同步拖拽顺序失败:', error);
+  }
+}
+
+/**
+ * 初始化拖拽功能
+ */
+function initDragAndDrop() {
+  // 1. 监听行程项目的拖拽开始事件
+  document.addEventListener('dragstart', function(e) {
+    // 如果点击的是输入框、文本域或按钮，不触发拖拽（这些元素默认不可拖拽，但为了保险起见）
+    if (e.target.matches('input, textarea, button, .btn-delete')) {
+      return;
+    }
+    
+    const tripItem = e.target.closest('.trip-item');
+    if (tripItem) {
+      draggedItem = tripItem;
+      // 拖拽时添加样式提示
+      tripItem.classList.add('dragging');
+      // 设置拖拽数据（可选，用于跨浏览器兼容）
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  });
+
+  // 2. 监听拖拽结束事件（移除样式）
+  document.addEventListener('dragend', function(e) {
+    const tripItem = e.target.closest('.trip-item');
+    if (tripItem) {
+      tripItem.classList.remove('dragging');
+      draggedItem = null;
+    }
+  });
+
+  // 3. 监听行程容器的拖拽经过事件（允许放置）
+  // 使用事件委托，因为day-items容器是动态生成的
+  document.addEventListener('dragover', function(e) {
+    const dayContainer = e.target.closest('.day-items');
+    if (!dayContainer || !draggedItem) return;
+    
+    // 检查是否在同一天内（不允许跨天拖拽）
+    const draggedDayIndex = draggedItem.dataset.dayIndex;
+    const targetDaySection = dayContainer.closest('.day-section');
+    if (!targetDaySection || targetDaySection.dataset.dayIndex !== draggedDayIndex) {
+      return; // 不允许跨天拖拽
+    }
+    
+    e.preventDefault(); // 必须阻止默认行为，否则无法触发drop
+    
+    // 找到当前拖拽位置下方的行程项目，用于定位插入点
+    const afterItem = getDragAfterElement(dayContainer, e.clientY);
+    const draggable = document.querySelector('.trip-item.dragging');
+    if (!draggable) return;
+    
+    if (afterItem == null) {
+      // 如果没有找到目标元素，插入到容器末尾（但在"添加项目"按钮之前）
+      const addBtn = dayContainer.querySelector('.btn-add');
+      if (addBtn) {
+        dayContainer.insertBefore(draggable, addBtn);
+      } else {
+        dayContainer.appendChild(draggable);
+      }
+    } else {
+      dayContainer.insertBefore(draggable, afterItem);
+    }
+  });
+
+  // 4. 监听放置事件（交换位置+同步数据）
+  document.addEventListener('drop', function(e) {
+    const dayContainer = e.target.closest('.day-items');
+    if (!dayContainer || !draggedItem) return;
+    
+    e.preventDefault();
+    
+    // 检查是否在同一天内
+    const draggedDayIndex = draggedItem.dataset.dayIndex;
+    const targetDaySection = dayContainer.closest('.day-section');
+    if (!targetDaySection || targetDaySection.dataset.dayIndex !== draggedDayIndex) {
+      return; // 不允许跨天拖拽
+    }
+    
+    // 同步更新本地行程数据（关键：保证拖拽后数据与DOM一致）
+    syncTripItemOrder(dayContainer);
+    
+    // 重新更新项目索引
+    const dayIndex = Number(targetDaySection.dataset.dayIndex);
+    if (!isNaN(dayIndex)) {
+      updateItemIndexes(dayIndex);
+    }
+    
+    draggedItem = null;
+  });
+}
+
+/**
  * 初始化输入框和拖拽操作的权限拦截
+ * 【修复闪烁问题】优化权限检查逻辑，避免在每次输入时都触发异步检查
  */
 function initPermissionInterceptors() {
-  // 拦截输入框修改操作
-  document.addEventListener('input', async function(e) {
+  // 存储已检查过权限的输入框及其权限状态（避免重复检查）
+  const permissionCache = new WeakMap();
+  
+  // 【修复】改为在focus时检查权限，而不是在每次input时检查
+  document.addEventListener('focus', async function(e) {
     // 匹配行程编辑区的输入框（时间、地点、描述）
     const editPanel = document.querySelector('.trip-edit-panel');
     if (!editPanel || !editPanel.contains(e.target)) {
@@ -1356,39 +1525,73 @@ function initPermissionInterceptors() {
 
     // 检查是否是行程编辑相关的输入框
     if (e.target.matches('.item-time, .item-place, .item-description, .day-date')) {
+      // 如果已经检查过权限且权限通过，直接返回（允许输入）
+      const cachedPermission = permissionCache.get(e.target);
+      if (cachedPermission === true) {
+        return;
+      }
+      
       const currentTripId = editPanel.dataset.currentTripId || 
                            document.getElementById('editTripContainer')?.dataset.currentTripId;
       
       if (currentTripId) {
-        const hasPermission = await checkTripModifyPermission(currentTripId);
-        if (!hasPermission) {
-          e.preventDefault();
-          e.stopPropagation();
-          window.api.showToast('您无权修改该行程', 'error');
-          
-          // 恢复输入框原有值
-          const originalValue = e.target.dataset.originalValue || e.target.defaultValue || '';
-          e.target.value = originalValue;
-          return false;
-        } else {
-          // 记录原始值（用于拦截时恢复）
-          if (!e.target.dataset.originalValue) {
-            e.target.dataset.originalValue = e.target.value;
-          }
+        // 记录原始值（用于拦截时恢复）
+        if (!e.target.dataset.originalValue) {
+          e.target.dataset.originalValue = e.target.value;
         }
+        
+        // 如果之前检查过且权限失败，直接阻止
+        if (cachedPermission === false) {
+          e.target.blur();
+          window.api.showToast('您无权修改该行程', 'error');
+          return;
+        }
+        
+        // 异步检查权限（不阻塞输入，允许用户先输入）
+        checkTripModifyPermission(currentTripId).then(hasPermission => {
+          // 缓存权限结果
+          permissionCache.set(e.target, hasPermission);
+          
+          if (!hasPermission) {
+            // 权限检查失败，恢复原值并移除焦点
+            e.target.value = e.target.dataset.originalValue || '';
+            e.target.blur();
+            window.api.showToast('您无权修改该行程', 'error');
+          }
+          // 权限通过时，允许继续输入，不需要额外操作
+        }).catch(error => {
+          console.error('权限检查失败:', error);
+          // 检查失败时，允许输入（避免阻塞用户操作）
+          permissionCache.set(e.target, true);
+        });
       }
     }
-  }, true); // 使用捕获阶段，确保在输入前拦截
+  }, true); // 使用捕获阶段
+  
+  // 【新增】在blur时清除权限缓存，允许下次重新检查（处理权限可能变化的情况）
+  document.addEventListener('blur', function(e) {
+    if (e.target.matches('.item-time, .item-place, .item-description, .day-date')) {
+      // 不清除缓存，保持权限状态，避免频繁检查
+      // 如果需要重新检查，可以在特定操作后清除缓存
+    }
+  }, true);
 
   // 拦截拖拽操作
   document.addEventListener('dragstart', async function(e) {
+    // 如果点击的是输入框、文本域或按钮，不拦截（让它们正常处理）
+    if (e.target.matches('input, textarea, button, .btn-delete')) {
+      return;
+    }
+    
     const editPanel = document.querySelector('.trip-edit-panel');
     if (!editPanel || !editPanel.contains(e.target)) {
       return;
     }
 
-    // 检查是否是行程项目拖拽
-    if (e.target.closest('.editable-item, .day-section')) {
+    // 检查是否是行程项目拖拽（支持.trip-item和.editable-item）
+    const tripItem = e.target.closest('.trip-item, .editable-item');
+    if (tripItem && !tripItem.closest('.day-section')) {
+      // 确保是行程项目本身，而不是day-section
       const currentTripId = editPanel.dataset.currentTripId || 
                            document.getElementById('editTripContainer')?.dataset.currentTripId;
       
@@ -1452,6 +1655,9 @@ function initTripEdit() {
 
   // 初始化权限拦截器（输入框、拖拽等操作）
   initPermissionInterceptors();
+
+  // 初始化拖拽功能
+  initDragAndDrop();
 
   // 将函数挂载到全局，供 HTML 中的 onclick 使用
   window.addTripItem = addTripItem;

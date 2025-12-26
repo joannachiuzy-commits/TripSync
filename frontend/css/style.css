@@ -275,6 +275,7 @@ body {
   border-radius: 6px;
   font-size: 1rem;
   font-family: inherit;
+  /* 【修复闪烁】保留边框颜色过渡（仅在focus时），但移除其他过渡避免输入时闪烁 */
   transition: border-color 0.2s;
 }
 
@@ -810,7 +811,8 @@ body {
   position: relative;
   padding: 2px 4px;
   border-radius: 3px;
-  transition: background-color 0.2s;
+  /* 【修复闪烁】移除背景色过渡，避免输入时触发动画 */
+  transition: none;
   min-height: 1.2em;
 }
 
@@ -831,6 +833,8 @@ body {
   background: white;
   outline: none;
   resize: none;
+  /* 【修复闪烁】移除输入框的过渡效果，避免输入时触发动画 */
+  transition: none;
 }
 
 .trip-time input {
@@ -887,7 +891,8 @@ body {
   align-items: center;
   gap: 12px;
   background: #fff;
-  transition: background-color 0.2s;
+  /* 【修复闪烁】移除背景色过渡，避免输入时触发动画 */
+  transition: none;
   flex-wrap: nowrap; /* 确保同一水平线 */
 }
 
@@ -934,6 +939,8 @@ body {
   padding: 0.5rem;
   border: 1px solid var(--border-color);
   border-radius: 3px;
+  /* 【修复闪烁】移除输入框的过渡效果，避免输入时触发动画 */
+  transition: none;
 }
 
 .editable-item textarea {
@@ -1535,12 +1542,30 @@ body {
   align-items: center;
   gap: 12px;
   background: #fff;
-  transition: background-color 0.2s;
+  /* 【修复闪烁】移除背景色过渡，避免输入时触发动画 */
+  transition: none;
   flex-wrap: nowrap;
 }
 
 #editItinerary .editable-item:hover {
   background: #f5f5f5;
+}
+
+/* 拖拽功能样式 */
+#editItinerary .trip-item {
+  cursor: grab; /* 鼠标悬浮时显示拖拽光标 */
+  transition: all 0.2s ease;
+}
+
+#editItinerary .trip-item:active {
+  cursor: grabbing; /* 拖拽中显示抓取光标 */
+}
+
+/* 拖拽中的行程项目样式 */
+#editItinerary .trip-item.dragging {
+  opacity: 0.7;
+  border: 2px dashed #4CAF50; /* 用主绿色虚线边框提示 */
+  background-color: #f8fff8;
 }
 
 #editItinerary .editable-item .item-time {
